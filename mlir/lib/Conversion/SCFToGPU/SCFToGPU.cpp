@@ -409,7 +409,7 @@ static LogicalResult processParallelLoop(
       parallelOp->getAttrOfType<ArrayAttr>(gpu::getMappingAttrName());
 
   // TODO: Support reductions.
-  if (!mapping || parallelOp.getNumResults() != 0)
+  if (!mapping || parallelOp.getNumResults() > 1)
     return failure();
 
   Location loc = parallelOp.getLoc();
@@ -556,6 +556,14 @@ static LogicalResult processParallelLoop(
 
   Block *body = parallelOp.getBody();
   worklist.reserve(worklist.size() + body->getOperations().size());
+  if (auto terminator = body->getTerminator();
+      auto reduceOp = dyn_cast<scf::ReduceOp>(terminator)) {
+    LLVM_DEBUG(llvm::dbgs() << "Block terminator: '" << terminator->getName()    \
+                            << "' " << terminator->getLoc() << "\n");
+    if (reduceOp.getOperands().size() == 1) {
+      worklist.push_back(terminator);
+    }
+  }
   for (Operation &op : llvm::reverse(body->without_terminator()))
     worklist.push_back(&op);
   return success();
@@ -596,10 +604,15 @@ ParallelToGpuLaunchLowering::matchAndRewrite(ParallelOp parallelOp,
   // Mark the operation as visited for recursive legality check.
   parallelOp->setAttr(kVisitedAttrName, rewriter.getUnitAttr());
 
+  LLVM_DEBUG(llvm::dbgs() << "Processing: '" << parallelOp->getName()    \
+                          << "' " << parallelOp->getLoc() << "\n");
+
   // We can only transform starting at the outer-most loop. Launches inside of
   // parallel loops are not supported.
-  if (auto parentLoop = parallelOp->getParentOfType<ParallelOp>())
+  if (auto parentLoop = parallelOp->getParentOfType<ParallelOp>()) {
+    LLVM_DEBUG(llvm::dbgs() << "Failed: has parent par loop\n");
     return failure();
+  }
   // Create a launch operation. We start with bound one for all grid/block
   // sizes. Those will be refined later as we discover them from mappings.
   Location loc = parallelOp.getLoc();
@@ -616,8 +629,10 @@ ParallelToGpuLaunchLowering::matchAndRewrite(ParallelOp parallelOp,
   llvm::DenseMap<gpu::Processor, Value> launchBounds;
   SmallVector<Operation *, 16> worklist;
   if (failed(processParallelLoop(parallelOp, launchOp, cloningMap, worklist,
-                                 launchBounds, rewriter)))
+                                 launchBounds, rewriter))) {
+    LLVM_DEBUG(llvm::dbgs() << "Failed: process par loop\n");
     return failure();
+  }
 
   // Whether we have seen any side-effects. Reset when leaving an inner scope.
   bool seenSideeffects = false;
@@ -633,14 +648,18 @@ ParallelToGpuLaunchLowering::matchAndRewrite(ParallelOp parallelOp,
     if (auto nestedParallel = dyn_cast<ParallelOp>(op)) {
       // Before entering a nested scope, make sure there have been no
       // sideeffects until now.
-      if (seenSideeffects)
+      if (seenSideeffects) {
+        LLVM_DEBUG(llvm::dbgs() << "Failed: nested parallel: side effects\n");
         return failure();
+      }
       // A nested scf.parallel needs insertion of code to compute indices.
       // Insert that now. This will also update the worklist with the loops
       // body.
       if (failed(processParallelLoop(nestedParallel, launchOp, cloningMap,
-                                     worklist, launchBounds, rewriter)))
+                                     worklist, launchBounds, rewriter))) {
+        LLVM_DEBUG(llvm::dbgs() << "Failed: nested parallel: process par loop\n");
         return failure();
+      }
     } else if (op == launchOp.getOperation()) {
       // Found our sentinel value. We have finished the operations from one
       // nesting level, pop one level back up.
@@ -648,6 +667,29 @@ ParallelToGpuLaunchLowering::matchAndRewrite(ParallelOp parallelOp,
       rewriter.setInsertionPointAfter(parent);
       leftNestingScope = true;
       seenSideeffects = false;
+    } else if (auto reduceOp = dyn_cast<scf::ReduceOp>(op)) {
+      // Convert scf.reduction op
+      auto parentLoop = op->getParentOfType<ParallelOp>();
+      if (!parentLoop || op->getOperands().size() != 1) {
+        return failure();
+      }
+      auto operand = op->getOperands().front();
+      auto newValue = cloningMap.lookupOrNull(operand);
+      if (!newValue) {
+        return failure();
+      }
+      // Replace by gpu.all_reduce.
+      auto gpuRedOp = rewriter.create<gpu::AllReduceOp>(loc, newValue);
+      cloningMap.map(parentLoop->getResult(0), gpuRedOp.getResult());
+      // Copy region.
+      rewriter.inlineRegionBefore(reduceOp.getRegion(0), gpuRedOp.getRegion(),
+                                  gpuRedOp.getRegion().begin());
+      // Replace src.reduce.return with gpu.yield.
+      auto scfReturn = gpuRedOp.getRegion().front().getTerminator();
+      auto ip = rewriter.saveInsertionPoint();
+      rewriter.setInsertionPointToEnd(&gpuRedOp.getRegion().front());
+      rewriter.replaceOpWithNewOp<gpu::YieldOp>(scfReturn, scfReturn->getOperands().front());
+      rewriter.restoreInsertionPoint(ip);
     } else {
       // Otherwise we copy it over.
       Operation *clone = rewriter.clone(*op, cloningMap);

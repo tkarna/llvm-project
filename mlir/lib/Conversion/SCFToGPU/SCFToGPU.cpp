@@ -705,6 +705,21 @@ ParallelToGpuLaunchLowering::matchAndRewrite(ParallelOp parallelOp,
     }
   }
 
+  // Clone ops that use parallelOp results.
+  SmallVector<Operation *> toRemove;
+  for (auto val : parallelOp.getResults()) {
+    for (auto &use : val.getUses()) {
+      auto &op = *use.getOwner();
+      LLVM_DEBUG(llvm::dbgs() << "  Clone result use:" << op.getName() << ", " << op.getLoc() << "\n");
+      if (op.getNumResults()) {
+        // TODO support more complex use patterns of the result.
+        return failure();
+      }
+      rewriter.clone(op, cloningMap);
+      toRemove.push_back(&op);
+    }
+  }
+
   // Now that we succeeded creating the launch operation, also update the
   // bounds.
   for (auto bound : launchBounds)
@@ -712,6 +727,9 @@ ParallelToGpuLaunchLowering::matchAndRewrite(ParallelOp parallelOp,
                         std::get<1>(bound));
 
   rewriter.eraseOp(parallelOp);
+  for (auto op : toRemove) {
+    rewriter.eraseOp(op);
+  }
   return success();
 }
 

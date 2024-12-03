@@ -184,6 +184,7 @@ struct TransferReadLowering : public OpRewritePattern<vector::TransferReadOp> {
     xegpu::CachePolicyAttr hint = nullptr;
     auto loadOp = rewriter.create<xegpu::LoadNdOp>(
         loc, vecTy, ndDesc, /*packed=*/nullptr, transposeAttr,
+        /*transpose_bit_width*/nullptr,
         /*l1_hint=*/hint,
         /*l2_hint=*/hint, /*l3_hint=*/hint);
     rewriter.replaceOp(readOp, loadOp);

@@ -302,6 +302,7 @@ def XeGPU_LoadNdOp : XeGPU_Op<"load_nd", [AllElementTypesMatch<["value", "Tensor
   let arguments = (ins XeGPU_TensorDesc: $TensorDesc,
                        OptionalAttr<UnitAttr>: $packed,
                        OptionalAttr<DenseI64ArrayAttr>: $transpose,
+                       OptionalAttr<I32Attr>: $transpose_bit_width,
                        OptionalAttr<XeGPU_CacheHintAttr>: $l1_hint,
                        OptionalAttr<XeGPU_CacheHintAttr>: $l2_hint,
                        OptionalAttr<XeGPU_CacheHintAttr>: $l3_hint);
@@ -869,6 +870,11 @@ def XeGPU_FenceOp: XeGPU_Op<"fence", []> {
                        XeGPU_FenceScopeAttr: $fence_scope);
   let assemblyFormat = [{`memory_kind` `=` `` $memory_kind `,` `fence_scope` `=` `` $fence_scope attr-dict}];
   let extraClassDeclaration = extraBaseClassDeclaration;
+}
+
+def XeGPU_CompileHintOp : XeGPU_Op<"compile_hint", []> {
+  let summary = "prevents the compiler from scheduling.";
+  let assemblyFormat = [{ attr-dict }];
 }
 
 #endif // MLIR_DIALECT_XEGPU_IR_XEGPUOPS_TD

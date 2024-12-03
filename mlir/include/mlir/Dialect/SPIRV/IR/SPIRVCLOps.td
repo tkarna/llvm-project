@@ -386,7 +386,7 @@ def SPIRV_CLExpOp : SPIRV_CLUnaryArithmeticOp<"exp", 19, SPIRV_Float> {
 
 // -----
 
-def SPIRV_CLFAbsOp : SPIRV_CLUnaryArithmeticOp<"fabs", 23, SPIRV_Float> {
+def SPIRV_CLFAbsOp : SPIRV_CLUnaryArithmeticOp<"fabs", 23, SPIRV_AnyFloat> {
   let summary = "Absolute value of operand";
 
   let description = [{
@@ -409,7 +409,7 @@ def SPIRV_CLFAbsOp : SPIRV_CLUnaryArithmeticOp<"fabs", 23, SPIRV_Float> {
 
 // -----
 
-def SPIRV_CLFMaxOp : SPIRV_CLBinaryArithmeticOp<"fmax", 27, SPIRV_Float> {
+def SPIRV_CLFMaxOp : SPIRV_CLBinaryArithmeticOp<"fmax", 27, SPIRV_AnyFloat> {
   let summary = "Return maximum of two floating-point operands";
 
   let description = [{
@@ -433,7 +433,7 @@ def SPIRV_CLFMaxOp : SPIRV_CLBinaryArithmeticOp<"fmax", 27, SPIRV_Float> {
 
 // -----
 
-def SPIRV_CLFMinOp : SPIRV_CLBinaryArithmeticOp<"fmin", 28, SPIRV_Float> {
+def SPIRV_CLFMinOp : SPIRV_CLBinaryArithmeticOp<"fmin", 28, SPIRV_AnyFloat> {
   let summary = "Return minimum of two floating-point operands";
 
   let description = [{
@@ -479,7 +479,7 @@ def SPIRV_CLFloorOp : SPIRV_CLUnaryArithmeticOp<"floor", 25, SPIRV_Float> {
 
 // -----
 
-def SPIRV_CLFmaOp : SPIRV_CLTernaryArithmeticOp<"fma", 26, SPIRV_Float> {
+def SPIRV_CLFmaOp : SPIRV_CLTernaryArithmeticOp<"fma", 26, SPIRV_AnyFloat> {
   let summary = [{
     Compute the correctly rounded floating-point representation of the sum
     of c with the infinitely precise product of a and b. Rounding of
@@ -789,7 +789,7 @@ def SPIRV_CLTanOp : SPIRV_CLUnaryArithmeticOp<"tan", 62, SPIRV_Float > {
 
 // -----
 
-def SPIRV_CLTanhOp : SPIRV_CLUnaryArithmeticOp<"tanh", 63, SPIRV_Float> {
+def SPIRV_CLTanhOp : SPIRV_CLUnaryArithmeticOp<"tanh", 63, SPIRV_AnyFloat> {
   let summary = "Compute hyperbolic tangent of x radians.";
 
   let description = [{

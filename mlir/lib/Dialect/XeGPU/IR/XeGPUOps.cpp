@@ -237,7 +237,7 @@ LogicalResult LoadNdOp::verify() {
       emitWarning("Invalid transpose attr. It is ignored.");
   }
 
-  if (getPacked()) {
+  if (getPacked() || getTransposeBitWidth() == 32) {
     if (tdescTy.getRank() == 2) {
       const int axis = 0;
       auto vnni_factor = valueShape.back();

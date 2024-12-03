@@ -171,8 +171,10 @@ static Type parseAndVerifyType(SPIRVDialect const &dialect,
 
   // Check other allowed types
   if (auto t = llvm::dyn_cast<FloatType>(type)) {
-    if (type.isBF16()) {
-      parser.emitError(typeLoc, "cannot use 'bf16' to compose SPIR-V types");
+    if (!ScalarType::isValid(t)) {
+      parser.emitError(typeLoc,
+                       "only 16/32/64-bit float type allowed but found ")
+          << type;
       return Type();
     }
   } else if (auto t = llvm::dyn_cast<IntegerType>(type)) {
@@ -187,9 +189,12 @@ static Type parseAndVerifyType(SPIRVDialect const &dialect,
       parser.emitError(typeLoc, "only 1-D vector allowed but found ") << t;
       return Type();
     }
-    if (t.getNumElements() > 4) {
+    // Number of elements should be between [2 - 2^63 -1],
+    // since getNumElements() returns an unsigned, the upper limit check is
+    // unnecessary
+    if (t.getNumElements() < 2) {
       parser.emitError(
-          typeLoc, "vector length has to be less than or equal to 4 but found ")
+          typeLoc, "vector length has to be between [2 - 2^63 -1] but found ")
           << t.getNumElements();
       return Type();
     }
@@ -895,6 +900,10 @@ LogicalResult SPIRVDialect::verifyOperationAttribute(Operation *op,
   } else if (symbol == spirv::getTargetEnvAttrName()) {
     if (!llvm::isa<spirv::TargetEnvAttr>(attr))
       return op->emitError("'") << symbol << "' must be a spirv::TargetEnvAttr";
+  } else if (symbol == spirv::getExecutionModeFuncAttrName()) {
+    if (!llvm::isa<spirv::ExecutionModeFuncAttributeAttr>(attr))
+      return op->emitError("'")
+             << symbol << "' must be a spirv::ExecutionModeFuncAttributeAttr";
   } else {
     return op->emitError("found unsupported '")
            << symbol << "' attribute on operation";

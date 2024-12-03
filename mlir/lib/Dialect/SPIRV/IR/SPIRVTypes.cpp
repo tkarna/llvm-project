@@ -100,9 +100,11 @@ bool CompositeType::classof(Type type) {
 }
 
 bool CompositeType::isValid(VectorType type) {
-  return type.getRank() == 1 &&
-         llvm::is_contained({2, 3, 4, 8, 16}, type.getNumElements()) &&
-         llvm::isa<ScalarType>(type.getElementType());
+  // Number of elements should be between [2 - 2^63 -1],
+  // since getNumElements() returns an unsigned, the upper limit check is
+  // unnecessary
+  return type.getRank() == 1 && mlir::isa<ScalarType>(type.getElementType()) &&
+         type.getNumElements() >= 2;
 }
 
 Type CompositeType::getElementType(unsigned index) const {
@@ -164,7 +166,21 @@ void CompositeType::getCapabilities(
       .Case<VectorType>([&](VectorType type) {
         auto vecSize = getNumElements();
         if (vecSize == 8 || vecSize == 16) {
-          static const Capability caps[] = {Capability::Vector16};
+          static const Capability caps[] = {Capability::Vector16,
+                                            Capability::VectorAnyINTEL};
+          ArrayRef<Capability> ref(caps, std::size(caps));
+          capabilities.push_back(ref);
+        }
+        // If the vector size is between (2 - (2^63 - 1))
+        // and not of any size 2, 3, 4, 8, and 16
+        // VectorAnyIntel Capability must be present
+        // for the SPIR-V to be valid
+        llvm::SmallVector<uint32_t, 5> allowedVecRange = {2, 3, 4, 8, 16};
+        if (vecSize >= 2 &&
+            (llvm::none_of(allowedVecRange, [&](uint32_t allowedVecSize) {
+              return vecSize == allowedVecSize;
+            }))) {
+          static const Capability caps[] = {Capability::VectorAnyINTEL};
           ArrayRef<Capability> ref(caps, std::size(caps));
           capabilities.push_back(ref);
         }
@@ -505,7 +521,7 @@ bool ScalarType::classof(Type type) {
 }
 
 bool ScalarType::isValid(FloatType type) {
-  return llvm::is_contained({16u, 32u, 64u}, type.getWidth()) && !type.isBF16();
+  return llvm::is_contained({16u, 32u, 64u}, type.getWidth());
 }
 
 bool ScalarType::isValid(IntegerType type) {
@@ -514,6 +530,14 @@ bool ScalarType::isValid(IntegerType type) {
 
 void ScalarType::getExtensions(SPIRVType::ExtensionArrayRefVector &extensions,
                                std::optional<StorageClass> storage) {
+
+  // bf16 case
+  if (llvm::isa<BFloat16Type>(*this)) {
+    static const Extension exts[] = {Extension::SPV_KHR_bfloat16};
+    ArrayRef<Extension> ref(exts, std::size(exts));
+    extensions.push_back(ref);
+  }
+
   // 8- or 16-bit integer/floating-point numbers will require extra extensions
   // to appear in interface storage classes. See SPV_KHR_16bit_storage and
   // SPV_KHR_8bit_storage for more details.
@@ -532,7 +556,7 @@ void ScalarType::getExtensions(SPIRVType::ExtensionArrayRefVector &extensions,
     [[fallthrough]];
   case StorageClass::Input:
   case StorageClass::Output:
-    if (getIntOrFloatBitWidth() == 16) {
+    if (getIntOrFloatBitWidth() == 16 && !llvm::isa<BFloat16Type>(*this)) {
       static const Extension exts[] = {Extension::SPV_KHR_16bit_storage};
       ArrayRef<Extension> ref(exts, std::size(exts));
       extensions.push_back(ref);
@@ -619,7 +643,20 @@ void ScalarType::getCapabilities(
   } else {
     assert(llvm::isa<FloatType>(*this));
     switch (bitwidth) {
-      WIDTH_CASE(Float, 16);
+    case 16: {
+      if (llvm::isa<BFloat16Type>(*this)) {
+        static const Capability caps[] = {Capability::BFloat16TypeKHR};
+        ArrayRef<Capability> ref(caps, std::size(caps));
+        capabilities.push_back(ref);
+
+      } else {
+        static const Capability caps[] = {Capability::Float16};
+        ArrayRef<Capability> ref(caps, std::size(caps));
+        capabilities.push_back(ref);
+      }
+      break;
+    }
+      // WIDTH_CASE(Float, 16);
       WIDTH_CASE(Float, 64);
     case 32:
       break;

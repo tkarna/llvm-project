@@ -259,6 +259,7 @@ LogicalResult spirv::Deserializer::processDecoration(ArrayRef<uint32_t> words) {
         symbol, FPRoundingModeAttr::get(opBuilder.getContext(),
                                         static_cast<FPRoundingMode>(words[2])));
     break;
+  case spirv::Decoration::Alignment:
   case spirv::Decoration::DescriptorSet:
   case spirv::Decoration::Binding:
     if (words.size() != 3) {
@@ -320,6 +321,10 @@ LogicalResult spirv::Deserializer::processDecoration(ArrayRef<uint32_t> words) {
   case spirv::Decoration::RestrictPointer:
   case spirv::Decoration::NoContraction:
   case spirv::Decoration::Constant:
+  case spirv::Decoration::SingleElementVectorINTEL:
+  case spirv::Decoration::VectorComputeCallableFunctionINTEL:
+  case spirv::Decoration::VectorComputeFunctionINTEL:
+  case spirv::Decoration::VectorComputeVariableINTEL:
     if (words.size() != 2) {
       return emitError(unknownLoc, "OpDecoration with ")
              << decorationName << "needs a single target <id>";
@@ -330,6 +335,7 @@ LogicalResult spirv::Deserializer::processDecoration(ArrayRef<uint32_t> words) {
     // it is needed for many validation rules.
     decorations[words[0]].set(symbol, opBuilder.getUnitAttr());
     break;
+  case spirv::Decoration::FuncParamIOKindINTEL:
   case spirv::Decoration::Location:
   case spirv::Decoration::SpecId:
     if (words.size() != 3) {
@@ -811,14 +817,20 @@ LogicalResult spirv::Deserializer::processType(spirv::Opcode opcode,
     typeMap[operands[0]] = IntegerType::get(context, operands[1], sign);
   } break;
   case spirv::Opcode::OpTypeFloat: {
-    if (operands.size() != 2)
-      return emitError(unknownLoc, "OpTypeFloat must have bitwidth parameter");
+    if (operands.size() < 2 || operands.size() > 3)
+      return emitError(
+          unknownLoc,
+          "OpTypeFloat must have bitwidth parameter and optional FP Encoding");
 
     Type floatTy;
     switch (operands[1]) {
-    case 16:
-      floatTy = opBuilder.getF16Type();
+    case 16: {
+      if (operands.size() == 3 && operands[2] == 0)
+        floatTy = opBuilder.getBF16Type();
+      else
+        floatTy = opBuilder.getF16Type();
       break;
+    }
     case 32:
       floatTy = opBuilder.getF32Type();
       break;
@@ -1324,6 +1336,9 @@ LogicalResult spirv::Deserializer::processConstant(ArrayRef<uint32_t> operands,
     } else if (floatType.isF16()) {
       APInt data(16, operands[2]);
       value = APFloat(APFloat::IEEEhalf(), data);
+    } else if (floatType.isBF16()) {
+      APInt data(16, operands[2]);
+      value = APFloat(APFloat::BFloat(), data);
     }
 
     auto attr = opBuilder.getFloatAttr(floatType, value);

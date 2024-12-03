@@ -252,8 +252,10 @@ LogicalResult Serializer::processDecorationAttr(Location loc, uint32_t resultID,
     }
     return emitError(loc, "expected FPRoundingModeAttr attribute for ")
            << stringifyDecoration(decoration);
+  case spirv::Decoration::Alignment:
   case spirv::Decoration::Binding:
   case spirv::Decoration::DescriptorSet:
+  case spirv::Decoration::FuncParamIOKindINTEL:
   case spirv::Decoration::Location:
     if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
       args.push_back(intAttr.getValue().getZExtValue());
@@ -287,6 +289,10 @@ LogicalResult Serializer::processDecorationAttr(Location loc, uint32_t resultID,
   case spirv::Decoration::RestrictPointer:
   case spirv::Decoration::NoContraction:
   case spirv::Decoration::Constant:
+  case spirv::Decoration::SingleElementVectorINTEL:
+  case spirv::Decoration::VectorComputeCallableFunctionINTEL:
+  case spirv::Decoration::VectorComputeFunctionINTEL:
+  case spirv::Decoration::VectorComputeVariableINTEL:
     // For unit attributes and decoration attributes, the args list
     // has no values so we do nothing.
     if (isa<UnitAttr, DecorationAttr>(attr))
@@ -471,6 +477,9 @@ LogicalResult Serializer::prepareBasicType(
   if (auto floatType = dyn_cast<FloatType>(type)) {
     typeEnum = spirv::Opcode::OpTypeFloat;
     operands.push_back(floatType.getWidth());
+    // Add extra parameter (FPEncoding) to opTypeFloat for bf16 data type
+    if (floatType.isBF16())
+      operands.push_back(static_cast<uint32_t>(spirv::FPEncoding::BFloat16KHR));
     return success();
   }
 
@@ -959,7 +968,8 @@ uint32_t Serializer::prepareConstantFp(Location loc, FloatAttr floatAttr,
     } words = llvm::bit_cast<DoubleWord>(value.convertToDouble());
     encodeInstructionInto(typesGlobalValues, opcode,
                           {typeID, resultID, words.word1, words.word2});
-  } else if (&value.getSemantics() == &APFloat::IEEEhalf()) {
+  } else if ((&value.getSemantics() == &APFloat::IEEEhalf()) ||
+             (&value.getSemantics() == &APFloat::BFloat())) {
     uint32_t word =
         static_cast<uint32_t>(value.bitcastToAPInt().getZExtValue());
     encodeInstructionInto(typesGlobalValues, opcode, {typeID, resultID, word});

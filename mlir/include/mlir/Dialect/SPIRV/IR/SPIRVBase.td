@@ -343,6 +343,7 @@ def SPV_KHR_subgroup_rotate                  : I32EnumAttrCase<"SPV_KHR_subgroup
 def SPV_KHR_non_semantic_info                : I32EnumAttrCase<"SPV_KHR_non_semantic_info", 29>;
 def SPV_KHR_terminate_invocation             : I32EnumAttrCase<"SPV_KHR_terminate_invocation", 30>;
 def SPV_KHR_cooperative_matrix               : I32EnumAttrCase<"SPV_KHR_cooperative_matrix", 31>;
+def SPV_KHR_bfloat16                         : I32EnumAttrCase<"SPV_KHR_bfloat16", 32>;
 
 def SPV_EXT_demote_to_helper_invocation  : I32EnumAttrCase<"SPV_EXT_demote_to_helper_invocation", 1000>;
 def SPV_EXT_descriptor_indexing          : I32EnumAttrCase<"SPV_EXT_descriptor_indexing", 1001>;
@@ -434,7 +435,7 @@ def SPIRV_ExtensionAttr :
       SPV_KHR_fragment_shader_barycentric, SPV_KHR_ray_cull_mask,
       SPV_KHR_uniform_group_instructions, SPV_KHR_subgroup_rotate,
       SPV_KHR_non_semantic_info, SPV_KHR_terminate_invocation,
-      SPV_KHR_cooperative_matrix,
+      SPV_KHR_cooperative_matrix, SPV_KHR_bfloat16,
       SPV_EXT_demote_to_helper_invocation, SPV_EXT_descriptor_indexing,
       SPV_EXT_fragment_fully_covered, SPV_EXT_fragment_invocation_density,
       SPV_EXT_fragment_shader_interlock, SPV_EXT_physical_storage_buffer,
@@ -1192,6 +1193,22 @@ def SPIRV_C_ShaderClockKHR                              : I32EnumAttrCase<"Shade
     Extension<[SPV_KHR_shader_clock]>
   ];
 }
+def SPIRV_C_BFloat16TypeKHR                              : I32EnumAttrCase<"BFloat16TypeKHR", 5116> {
+  list<Availability> availability = [
+    Extension<[SPV_KHR_bfloat16]>
+  ];
+}
+def SPIRV_C_BFloat16DotProductKHR                              : I32EnumAttrCase<"BFloat16DotProductKHR", 5117> {
+  list<I32EnumAttrCase> implies = [SPIRV_C_BFloat16TypeKHR];
+  list<Availability> availability = [
+    Extension<[SPV_KHR_bfloat16]>  ];
+}
+def SPIRV_C_BFloat16CooperativeMatrixKHR                              : I32EnumAttrCase<"BFloat16CooperativeMatrixKHR", 5118> {
+  list<I32EnumAttrCase> implies = [SPIRV_C_BFloat16TypeKHR, SPIRV_C_CooperativeMatrixKHR];
+  list<Availability> availability = [
+    Extension<[SPV_KHR_bfloat16]>
+  ];
+}
 def SPIRV_C_FragmentFullyCoveredEXT                     : I32EnumAttrCase<"FragmentFullyCoveredEXT", 5265> {
   list<I32EnumAttrCase> implies = [SPIRV_C_Shader];
   list<Availability> availability = [
@@ -1484,6 +1501,7 @@ def SPIRV_CapabilityAttr :
       SPIRV_C_RayQueryKHR, SPIRV_C_RayTracingKHR, SPIRV_C_Float16ImageAMD,
       SPIRV_C_ImageGatherBiasLodAMD, SPIRV_C_FragmentMaskAMD, SPIRV_C_StencilExportEXT,
       SPIRV_C_ImageReadWriteLodAMD, SPIRV_C_Int64ImageEXT, SPIRV_C_ShaderClockKHR,
+      SPIRV_C_BFloat16TypeKHR, SPIRV_C_BFloat16DotProductKHR, SPIRV_C_BFloat16CooperativeMatrixKHR,
       SPIRV_C_FragmentFullyCoveredEXT, SPIRV_C_MeshShadingNV, SPIRV_C_FragmentDensityEXT,
       SPIRV_C_ShaderNonUniform, SPIRV_C_RuntimeDescriptorArray,
       SPIRV_C_StorageTexelBufferArrayDynamicIndexing, SPIRV_C_RayTracingNV,
@@ -4139,11 +4157,21 @@ def SPIRV_Bool : TypeAlias<I1, "bool">;
 def SPIRV_Integer : AnyIntOfWidths<[8, 16, 32, 64]>;
 def SPIRV_Int16 : TypeAlias<I16, "Int16">;
 def SPIRV_Int32 : TypeAlias<I32, "Int32">;
+def SPIRV_BFloat16KHR : TypeAlias<BF16, "BFloat16">;
 def SPIRV_Float32 : TypeAlias<F32, "Float32">;
-def SPIRV_Float : FloatOfWidths<[16, 32, 64]>;
-def SPIRV_Float16or32 : FloatOfWidths<[16, 32]>;
-def SPIRV_Vector : VectorOfLengthAndType<[2, 3, 4, 8, 16],
-                                       [SPIRV_Bool, SPIRV_Integer, SPIRV_Float]>;
+// def SPIRV_Float : FloatOfWidths<[16, 32, 64]>;
+def SPIRV_Float : AnyTypeOf<[F16, F32, F64]>;
+// def SPIRV_Float16or32 : FloatOfWidths<[16, 32]>;
+def SPIRV_Float16or32 : AnyTypeOf<[F16, F32]>;
+// Use this type for all kinds of floats.
+def SPIRV_AnyFloat : AnyTypeOf<[SPIRV_BFloat16KHR, SPIRV_Float]>;
+// Remove the vector size restriction
+// Although the vector size can be upto (2^64-1), uint64
+// In tablegen, int is signed int, hence using the upper
+// limit of int64 (2^63-1) rather than uint64, it should serve the purpose
+// for all practical cases
+def SPIRV_Vector : VectorOfLengthRangeAndType<[2, 0x7FFFFFFFFFFFFFFF],
+                                       [SPIRV_Bool, SPIRV_Integer, SPIRV_Float, SPIRV_BFloat16KHR]>;
 // Component type check is done in the type parser for the following SPIR-V
 // dialect-specific types so we use "Any" here.
 def SPIRV_AnyPtr : DialectType<SPIRV_Dialect, SPIRV_IsPtrType,
@@ -4164,14 +4192,14 @@ def SPIRV_AnyStruct : DialectType<SPIRV_Dialect, SPIRV_IsStructType,
 def SPIRV_AnySampledImage : DialectType<SPIRV_Dialect, SPIRV_IsSampledImageType,
                                 "any SPIR-V sampled image type">;
 
-def SPIRV_Numerical : AnyTypeOf<[SPIRV_Integer, SPIRV_Float]>;
+def SPIRV_Numerical : AnyTypeOf<[SPIRV_Integer, SPIRV_Float, SPIRV_BFloat16KHR]>;
 def SPIRV_Scalar : AnyTypeOf<[SPIRV_Numerical, SPIRV_Bool]>;
 def SPIRV_Aggregate : AnyTypeOf<[SPIRV_AnyArray, SPIRV_AnyRTArray, SPIRV_AnyStruct]>;
 def SPIRV_Composite :
     AnyTypeOf<[SPIRV_Vector, SPIRV_AnyArray, SPIRV_AnyRTArray, SPIRV_AnyStruct,
                SPIRV_AnyCooperativeMatrix, SPIRV_AnyMatrix]>;
 def SPIRV_Type : AnyTypeOf<[
-    SPIRV_Void, SPIRV_Bool, SPIRV_Integer, SPIRV_Float, SPIRV_Vector,
+    SPIRV_Void, SPIRV_Bool, SPIRV_Integer, SPIRV_Float, SPIRV_BFloat16KHR, SPIRV_Vector,
     SPIRV_AnyPtr, SPIRV_AnyArray, SPIRV_AnyRTArray, SPIRV_AnyStruct,
     SPIRV_AnyCooperativeMatrix, SPIRV_AnyMatrix, SPIRV_AnySampledImage
   ]>;
@@ -4185,7 +4213,7 @@ class SPIRV_CoopMatrixOfType<list<Type> allowedTypes> :
     "Cooperative Matrix">;
 
 class SPIRV_VectorOf<Type type> :
-    VectorOfLengthAndType<[2, 3, 4, 8,16], [type]>;
+    VectorOfLengthRangeAndType<[2, 0x7FFFFFFFFFFFFFFF], [type]>;
 
 class SPIRV_ScalarOrVectorOf<Type type> :
     AnyTypeOf<[type, SPIRV_VectorOf<type>]>;
@@ -4732,6 +4760,12 @@ def SPIRV_FPFMM_AllowReassocINTEL : I32BitEnumAttrCaseBit<"AllowReassocINTEL", 1
     Capability<[SPIRV_C_FPFastMathModeINTEL]>
   ];
 }
+
+def SPIRV_FPE_BFloat16KHR     :  I32EnumAttrCase<"BFloat16KHR", 0>;
+def SPIRV_FP_Encoding  :
+     SPIRV_I32EnumAttr<"FPEncoding", "Valid floating-point encoding", "fpEncoding", [
+     SPIRV_FPE_BFloat16KHR
+     ]>;
 
 def SPIRV_FPFastMathModeAttr :
     SPIRV_BitEnumAttr<"FPFastMathMode", "Indicates a floating-point fast math flag", "fastmath_mode", [

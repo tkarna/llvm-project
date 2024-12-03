@@ -600,6 +600,8 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
   Location loc = op.getLoc();
   OpBuilder::InsertionGuard g(b);
 
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << " HERE" << "\n");
+
   // Ops implementing PartialReductionOpInterface are expected to implement
   // TilingInterface.
   // TODO: proper core mechanism to tie interfaces together.
@@ -628,31 +630,54 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
       tilingInterfaceOp.getLoopIteratorTypes();
   SmallVector<unsigned> redDims;
   linalgOp.getReductionDims(redDims);
-  if (redDims.size() != 1)
-    return b.notifyMatchFailure(
-        op, "only support ops with one reduction dimension.");
-  if (!tileSizes.empty() && tileSizes.size() != numThreads.size())
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "reduction dims  (" << redDims.size() << ")\n");
+  for (auto dim : redDims) {
+    LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "  " << dim << "\n");
+  }
+  // if (redDims.size() != 1)
+  //   return b.notifyMatchFailure(
+  //       op, "only support ops with one reduction dimension.");
+  if (!tileSizes.empty() && tileSizes.size() != numThreads.size()) {
+    LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "if tile sizes are present it must have as many elements as number of threads" << "\n");
     return b.notifyMatchFailure(op, "if tile sizes are present it must have as "
                                     "many elements as number of threads");
+  }
   int reductionDim = static_cast<int>(redDims.front());
 
-  if (redDims.front() >= numThreads.size())
+  if (redDims.front() >= numThreads.size()) {
+    LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "reduction dimension must be mapped to threads" << "\n");
     return b.notifyMatchFailure(
         op, "reduction dimension must be mapped to threads");
+  }
 
   // 1. Create the inital tensor value.
+  // FailureOr<SmallVector<Value>> maybeInitTensors =
+  //     op.generateInitialTensorForPartialReduction(b, loc, numThreads,
+  //                                                 reductionDim);
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "ONE" << "\n");
+  SmallVector<int> redDimsInt;
+  // llvm::ArrayRef<int> redDimsRef(redDims);
+  for (auto dim : redDims) {
+    redDimsInt.push_back(static_cast<int>(dim));
+  }
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "TWO" << "\n");
   FailureOr<SmallVector<Value>> maybeInitTensors =
       op.generateInitialTensorForPartialReduction(b, loc, numThreads,
-                                                  reductionDim);
+                                                  redDimsInt);
   if (failed(maybeInitTensors))
     return b.notifyMatchFailure(
         op, "Failed to create inital tensors for partial reduction");
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "init tensors  (" << maybeInitTensors->size() << ")\n");
+  // for (auto t : *maybeInitTensors) {
+  //   op.emitWarning() << "tileReductionUsingForall: " << "  " << t << "\n";
+  // }
   SmallVector<Value> &initTensors = maybeInitTensors.value();
 
   // Gather destination tensors.
   SmallVector<Value> dest;
   if (failed(tensor::getOrCreateDestinations(b, loc, op, dest)))
     return b.notifyMatchFailure(op, "failed to get destination tensors");
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "3" << "\n");
 
   Operation *tiledOp = nullptr;
 
@@ -660,13 +685,16 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
       llvm::to_vector(llvm::make_filter_range(numThreads, [](OpFoldResult ofr) {
         return !isConstantIntValue(ofr, 0);
       }));
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "4" << "\n");
   SmallVector<Value> materializedNonZeroNumThreads =
       getValueOrCreateConstantIndexOp(b, loc, nonZeroNumThreads);
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "5" << "\n");
 
   // 2. Create the ForallOp with an empty region.
   scf::ForallOp forallOp = b.create<scf::ForallOp>(
       loc, getAsOpFoldResult(materializedNonZeroNumThreads), initTensors,
       mapping);
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "6" << "\n");
 
   // 3. Calculate the tile offsets and sizes for the subsequent loop that will
   // be nested under `forallOp`.
@@ -675,11 +703,13 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
                                /*omitTileOffsetBoundsCheck =*/false,
                                /*nominalTileSizes=*/std::nullopt, tiledOffsets,
                                tiledSizes);
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "7" << "\n");
 
   // 4b. Clone the tileable op and update its destination operands to use the
   // output bbArgs of the ForallOp.
   SmallVector<Value> tilingResults;
   ArrayRef<BlockArgument> destBbArgs = forallOp.getRegionIterArgs();
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "8" << "\n");
   {
     // 4.a. RAII guard, inserting within forallOp, before terminator.
     OpBuilder::InsertionGuard g(b);
@@ -694,6 +724,7 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
       SmallVector<OpFoldResult> outOffsets(numThreads.size(),
                                            b.getIndexAttr(0));
       SmallVector<OpFoldResult> sizes = tiledSizes;
+      // FIXME reductionDim is scalar
       sizes[reductionDim] = b.getIndexAttr(1);
       outOffsets[reductionDim] = forallOp.getInductionVars()[0];
       // TODO: use SubsetExtractOpInterface once it is available.
@@ -746,6 +777,7 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
 
     b.eraseOp(clonedOp);
   }
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "9" << "\n");
 
   // 6. Insert the partial reductions back into a new tensor.
   for (auto [index, result, bbArg] : llvm::zip(
@@ -762,6 +794,7 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
     int64_t offIdx = 0;
     int64_t sizeIdx = 0;
     for (int64_t i = 0, e = numThreads.size(); i < e; ++i) {
+      // FIXME reductionDim is scalar
       if (i == reductionDim) {
         resultOffsetsRank.push_back(forallOp.getInductionVars()[0]);
         resultSizesRank.push_back(b.getIndexAttr(1));
@@ -779,6 +812,7 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
     b.create<tensor::ParallelInsertSliceOp>(
         loc, result, bbArg, resultOffsetsRank, resultSizesRank, strides);
   }
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "10" << "\n");
 
   // 7. Merge the partial reductions.
   b.setInsertionPointAfter(forallOp);
@@ -788,6 +822,7 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
     return failure();
   }
   b.replaceOp(op, mergeResult->replacements);
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "11" << "\n");
 
   // 8. Return.
   ForallReductionTilingResult results;
@@ -795,6 +830,7 @@ FailureOr<linalg::ForallReductionTilingResult> linalg::tileReductionUsingForall(
   results.loops = forallOp;
   results.parallelTiledOps.push_back(tiledOp);
   results.mergeOps.append(mergeResult->mergeOps);
+  LLVM_DEBUG(llvm::dbgs() << "tileReductionUsingForall: " << "12" << "\n");
   return results;
 }
 

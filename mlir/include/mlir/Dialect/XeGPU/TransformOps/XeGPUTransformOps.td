@@ -110,9 +110,8 @@ def SetGPULaunchThreadsOp
   let summary = "Set number of threads for a given gpu.launch operation";
   let description = [{Set number of threads for a given gpu.launch operation}];
 
-  let arguments = (ins TransformHandleTypeInterface
-                   : $launchOp, DenseI32ArrayAttr
-                   : $threads);
+  let arguments = (ins TransformHandleTypeInterface : $launchOp,
+                   DenseI32ArrayAttr : $threads);
   let results = (outs);
   let assemblyFormat =
       "$launchOp `threads` `=` $threads attr-dict `:` type($launchOp)";

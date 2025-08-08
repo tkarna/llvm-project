@@ -413,10 +413,11 @@ scf::ForOp fuseForLoops(scf::ForOp target, scf::ForOp source,
   return fusedLoop;
 }
 
-DiagnosedSilenceableFailure transform::HoistDescOp::applyToOne(
-    transform::TransformRewriter &rewriter, Operation *target,
-    transform::ApplyToEachResultList &results,
-    transform::TransformState &state) {
+DiagnosedSilenceableFailure
+transform::HoistDescOp::applyToOne(transform::TransformRewriter &rewriter,
+                                   Operation *target,
+                                   transform::ApplyToEachResultList &results,
+                                   transform::TransformState &state) {
 
   auto loopOp = dyn_cast<scf::ForOp>(target);
   if (!loopOp) {
@@ -449,8 +450,8 @@ void transform::HoistDescOp::getEffects(
 
 DiagnosedSilenceableFailure
 transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
-                                        transform::TransformResults &results,
-                                        transform::TransformState &state) {
+                                   transform::TransformResults &results,
+                                   transform::TransformState &state) {
 
   auto targetOps = state.getPayloadOps(getTarget());
   auto loopOps = state.getPayloadOps(getLoopOp());
@@ -619,7 +620,8 @@ DiagnosedSilenceableFailure transform::SetOperandLayoutOp::applyToOne(
   }
   auto descOp = *maybeDescOp;
   // Set layout attribute.
-  auto layoutAttr = createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
+  auto layoutAttr =
+      createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
   descOp = setDescLayout(rewriter, descOp, layoutAttr);
   if (operandIndex == 2) {
     // C operand: set layout attribute for the dpas op result.

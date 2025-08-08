@@ -452,23 +452,24 @@ transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
                                         transform::TransformResults &results,
                                         transform::TransformState &state) {
 
-  auto dpasOps = state.getPayloadOps(getDpasOp());
+  auto targetOps = state.getPayloadOps(getTarget());
   auto loopOps = state.getPayloadOps(getLoopOp());
 
-  if (!llvm::hasSingleElement(dpasOps)) {
-    return emitDefiniteFailure() << "requires exactly one dpasOp handle (got "
-                                 << llvm::range_size(dpasOps) << ")";
+  if (!llvm::hasSingleElement(targetOps)) {
+    return emitDefiniteFailure() << "requires exactly one targetOp handle (got "
+                                 << llvm::range_size(targetOps) << ")";
   }
   if (!llvm::hasSingleElement(loopOps)) {
     return emitDefiniteFailure() << "requires exactly one loopOp handle (got "
                                  << llvm::range_size(loopOps) << ")";
   }
 
-  Operation *dpasPtr = *dpasOps.begin();
-  auto dpasOp = dyn_cast<xegpu::DpasOp>(dpasPtr);
-  if (!dpasOp) {
+  Operation *targetPtr = *targetOps.begin();
+  // For now only DPAS op is supported.
+  auto targetOp = dyn_cast<xegpu::DpasOp>(targetPtr);
+  if (!targetOp) {
     return emitSilenceableFailure(getLoc())
-           << "Expected a xegpu.dpas op, but got: " << dpasPtr->getName();
+           << "Expected a xegpu.dpas op, but got: " << targetPtr->getName();
   }
 
   Operation *loopPtr = *loopOps.begin();
@@ -478,16 +479,16 @@ transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
            << "Expected a scf.for op, but got: " << loopPtr->getName();
   }
 
-  auto parentLoop = dpasOp->getParentOfType<scf::ForOp>();
+  auto parentLoop = targetOp->getParentOfType<scf::ForOp>();
   if (!parentLoop || parentLoop != forOp) {
     return emitSilenceableFailure(getLoc())
-           << "dpasOp is not contained in the given scf.for loop.";
+           << "target op is not contained in the given scf.for loop.";
   }
 
-  int64_t tileIndex = getTileIndex();
-  if (tileIndex >= dpasOp.getNumOperands()) {
+  int64_t operandIndex = getOperandIndex();
+  if (operandIndex >= targetOp.getNumOperands()) {
     return emitSilenceableFailure(getLoc())
-           << "tileIndex exceeds the number of op operands.";
+           << "operandIndex exceeds the number of op operands.";
   }
 
   auto sgLayout = getSgLayout();
@@ -503,8 +504,8 @@ transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
   }
 
   // Find descriptor op of the operand.
-  Value opVec = dpasOp.getOperation()->getOperand(tileIndex);
-  auto maybeDescOp = findDescriptorOp(opVec, dpasOp.getOperation());
+  Value opVec = targetOp.getOperation()->getOperand(operandIndex);
+  auto maybeDescOp = findDescriptorOp(opVec, targetOp.getOperation());
   if (!maybeDescOp) {
     return emitSilenceableFailure(getLoc()) << "Could not find descriptor op.";
   }
@@ -554,42 +555,42 @@ transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
   newForOp.setLowerBound(forOp.getLowerBound());
 
   // Fuse with the original loop, keep track of cloned ops.
-  SmallVector<Operation *> sourceOps{dpasOp.getOperation()}, targetOps;
-  auto fusedLoop =
-      fuseForLoops(newForOp, forOp, rewriter, sourceOps, targetOps);
+  SmallVector<Operation *> sourceOps{targetOp.getOperation()}, dstOps;
+  auto fusedLoop = fuseForLoops(newForOp, forOp, rewriter, sourceOps, dstOps);
   assert(fusedLoop && "failed to fuse loops");
 
-  // Get the cloned dpas op.
-  auto clonedDpasOp = targetOps[0];
-  if (!clonedDpasOp) {
+  // Get the cloned target op.
+  auto clonedTargetOp = dstOps[0];
+  if (!clonedTargetOp) {
     return emitSilenceableFailure(getLoc())
-           << "Failed to find cloned dpas op in the fused loop.";
+           << "Failed to find cloned target op in the fused loop.";
   }
 
   // Map result handles.
   results.set(cast<OpResult>(getTransformedLoopOp()), {fusedLoop});
-  results.set(cast<OpResult>(getTransformedDpasOp()), {clonedDpasOp});
+  results.set(cast<OpResult>(getTransformedTargetOp()), {clonedTargetOp});
 
   return DiagnosedSilenceableFailure::success();
 }
 
-DiagnosedSilenceableFailure transform::SetDPASLayoutOp::applyToOne(
+DiagnosedSilenceableFailure transform::SetOperandLayoutOp::applyToOne(
     transform::TransformRewriter &rewriter, Operation *target,
     transform::ApplyToEachResultList &results,
     transform::TransformState &state) {
 
-  auto dpasOp = dyn_cast<xegpu::DpasOp>(target);
-  if (!dpasOp) {
+  // For now only DPAS op is supported.
+  auto targetOp = dyn_cast<xegpu::DpasOp>(target);
+  if (!targetOp) {
     auto diag = emitSilenceableFailure(getLoc())
                 << "Expected a xegpu.dpas op, but got: " << target->getName();
     diag.attachNote(target->getLoc()) << "target op";
     return diag;
   }
 
-  int64_t tileIndex = getTileIndex();
-  if (tileIndex >= dpasOp.getNumOperands()) {
+  int64_t operandIndex = getOperandIndex();
+  if (operandIndex >= targetOp.getNumOperands()) {
     return emitSilenceableFailure(getLoc())
-           << "tileIndex exceeds the number of op operands.";
+           << "operandIndex exceeds the number of op operands.";
   }
 
   auto sgLayout = getSgLayout();
@@ -611,8 +612,8 @@ DiagnosedSilenceableFailure transform::SetDPASLayoutOp::applyToOne(
   }
 
   // Replace descriptor op using layout attribute.
-  Value opVec = dpasOp.getOperation()->getOperand(tileIndex);
-  auto maybeDescOp = findDescriptorOp(opVec, dpasOp.getOperation());
+  Value opVec = targetOp.getOperation()->getOperand(operandIndex);
+  auto maybeDescOp = findDescriptorOp(opVec, targetOp.getOperation());
   if (!maybeDescOp) {
     return emitSilenceableFailure(getLoc()) << "Could not find descriptor op.";
   }
@@ -620,17 +621,17 @@ DiagnosedSilenceableFailure transform::SetDPASLayoutOp::applyToOne(
   // Set layout attribute.
   auto layoutAttr = createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
   descOp = setDescLayout(rewriter, descOp, layoutAttr);
-  if (tileIndex == 2) {
+  if (operandIndex == 2) {
     // C operand: set layout attribute for the dpas op result.
-    xegpu::setLayoutAttr(dpasOp.getOperation()->getResults()[0], layoutAttr);
+    xegpu::setLayoutAttr(targetOp.getOperation()->getResults()[0], layoutAttr);
   }
 
   return DiagnosedSilenceableFailure::success();
 }
 
-void transform::SetDPASLayoutOp::getEffects(
+void transform::SetOperandLayoutOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  onlyReadsHandle(getDpasOpMutable(), effects);
+  onlyReadsHandle(getTargetMutable(), effects);
   modifiesPayload(effects);
 }
 

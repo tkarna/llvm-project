@@ -41,21 +41,21 @@ def HoistDescOp : Op<Transform_Dialect, "xegpu.hoist_desc_ops", [
   }];
 }
 
-def SetDPASLayoutOp : Op<Transform_Dialect, "xegpu.set_dpas_layout", [
+def SetOperandLayoutOp : Op<Transform_Dialect, "xegpu.set_operand_layout", [
   TransformOpInterface, TransformEachOpTrait,
   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
 ]> {
 
-  let summary = "Set xegpu.layout attribute to an DPAS op operand.";
+  let summary = "Set xegpu.layout attribute to an xegpu op operand.";
   let description = [{
-    Given a `xegpu.dpas` operation, this transform adds `xegpu.layout`
+    Given an xegpu operation, this transform adds `xegpu.layout`
     attribute to it's operand's tensor descriptor. The target operand is
-    defined by the `tileIndex` argument. The layout is defined by the
+    defined by the `operandIndex` argument. The layout is defined by the
     `sg_layout`, `sg_data` and `inst_data` attributes.
   }];
 
-  let arguments = (ins TransformHandleTypeInterface : $dpasOp,
-                   I64Attr : $tileIndex,
+  let arguments = (ins TransformHandleTypeInterface : $target,
+                   I64Attr : $operandIndex,
                    DenseI32ArrayAttr : $sgLayout,
                    DenseI32ArrayAttr : $sgData,
                    DenseI32ArrayAttr : $instData);
@@ -63,8 +63,8 @@ def SetDPASLayoutOp : Op<Transform_Dialect, "xegpu.set_dpas_layout", [
   let results = (outs);
 
   let assemblyFormat =
-      "$dpasOp `index` `=` $tileIndex `sg_layout` `=` $sgLayout `sg_data` `=` "
-      "$sgData `inst_data` `=` $instData attr-dict `:` type($dpasOp)";
+      "$target `index` `=` $operandIndex `sg_layout` `=` $sgLayout `sg_data` `=` "
+      "$sgData `inst_data` `=` $instData attr-dict `:` type($target)";
 
   let extraClassDeclaration = [{
     ::mlir::DiagnosedSilenceableFailure applyToOne(
@@ -81,20 +81,20 @@ def InsertPrefetchOp : Op<Transform_Dialect, "xegpu.insert_prefetch",
 
   let summary = "Adds xegpu prefetch ops to matmul operand tiles.";
   let description = [{
-    Given a `xegpu.dpas` operation residing in a `scf.for` loop, this transform inserts cooperative `xegpu.prefetch` operations for the A (index = 0) or B (index = 1) operand. The prefetch tile size is determined by the `sg_layout` and `sg_data` attributes.
+    Given an xegpu operation residing in a `scf.for` loop, this transform inserts cooperative `xegpu.prefetch` operations for the A (index = 0) or B (index = 1) operand. The prefetch tile size is determined by the `sg_layout` and `sg_data` attributes.
   }];
 
-  let arguments = (ins TransformHandleTypeInterface : $dpasOp,
+  let arguments = (ins TransformHandleTypeInterface : $target,
                    TransformHandleTypeInterface : $loopOp,
-                   I64Attr : $tileIndex,
+                   I64Attr : $operandIndex,
                    DenseI32ArrayAttr : $sgLayout,
                    DenseI32ArrayAttr : $sgData);
 
-  let results = (outs TransformHandleTypeInterface : $transformedDpasOp,
+  let results = (outs TransformHandleTypeInterface : $transformedTargetOp,
                  TransformHandleTypeInterface : $transformedLoopOp);
 
   let assemblyFormat =
-      "$dpasOp $loopOp `index` `=` $tileIndex `sg_layout` `=` $sgLayout `sg_data` `=` "
+      "$target $loopOp `index` `=` $operandIndex `sg_layout` `=` $sgLayout `sg_data` `=` "
       "$sgData attr-dict `:` functional-type(operands, results)";
 }
 

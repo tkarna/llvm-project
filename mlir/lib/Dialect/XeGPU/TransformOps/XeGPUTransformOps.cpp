@@ -610,23 +610,6 @@ DiagnosedSilenceableFailure transform::SetDPASLayoutOp::applyToOne(
            << "Expected inst_data to be a 2D vector";
   }
 
-  llvm::ArrayRef<int> loadData = instData;
-  if (getLoadData().has_value()) {
-    loadData = getLoadData().value();
-    if (loadData.size() != 2) {
-      return emitSilenceableFailure(getLoc())
-            << "Expected load_data to be a 2D vector";
-    }
-    if (loadData[0] < instData[0] || loadData[1] < instData[1]) {
-      return emitSilenceableFailure(getLoc())
-      << "load_data size must be larger or equal to inst_data size";
-    }
-    if (loadData[0] % instData[0] != 0 || loadData[1] % instData[1] != 0) {
-      return emitSilenceableFailure(getLoc())
-      << "load_data must be evenly divisible by inst_data";
-    }
-  }
-
   // Replace descriptor op using layout attribute.
   Value opVec = dpasOp.getOperation()->getOperand(tileIndex);
   auto maybeDescOp = findDescriptorOp(opVec, dpasOp.getOperation());
@@ -634,35 +617,12 @@ DiagnosedSilenceableFailure transform::SetDPASLayoutOp::applyToOne(
     return emitSilenceableFailure(getLoc()) << "Could not find descriptor op.";
   }
   auto descOp = *maybeDescOp;
-  // Layout for the load op.
-  auto loadLayoutAttr = createLayoutAttr(rewriter.getContext(), sgLayout, sgData, loadData);
-  descOp = setDescLayout(rewriter, descOp, loadLayoutAttr);
-  // Layout for the instruction.
-  auto instLayoutAttr = createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
+  // Set layout attribute.
+  auto layoutAttr = createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
+  descOp = setDescLayout(rewriter, descOp, layoutAttr);
   if (tileIndex == 2) {
-    // C operand: set layout attribute for the dpas op result
-    xegpu::setLayoutAttr(dpasOp.getOperation()->getResults()[0], instLayoutAttr);
-  }
-
-  if (loadLayoutAttr != instLayoutAttr) {
-    // Insert convert layout op after load op.
-    auto maybeLoadOp = getUserOfType<xegpu::LoadNdOp>(descOp.getResult());
-    if (!maybeLoadOp) {
-      return emitSilenceableFailure(getLoc())
-      << "Expected a xegpu.load_nd op as a user of the descriptor op."; 
-    }
-    auto loadOp = *maybeLoadOp;
-    rewriter.setInsertionPointAfter(loadOp.getOperation());
-    auto source = loadOp.getResult();
-    auto convLayoutOp = rewriter.create<xegpu::ConvertLayoutOp>(
-        loadOp.getLoc(), source.getType(), source,
-        loadLayoutAttr, instLayoutAttr);
-    // Replace load op result with the converted layout.
-    rewriter.replaceUsesWithIf(
-      source, convLayoutOp.getResult(),
-      [&](OpOperand &use) {
-        return use.getOwner() != convLayoutOp.getOperation();
-      });
+    // C operand: set layout attribute for the dpas op result.
+    xegpu::setLayoutAttr(dpasOp.getOperation()->getResults()[0], layoutAttr);
   }
 
   return DiagnosedSilenceableFailure::success();

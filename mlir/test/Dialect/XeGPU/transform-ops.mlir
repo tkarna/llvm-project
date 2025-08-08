@@ -107,37 +107,7 @@ module attributes {transform.with_named_sequence} {
   transform.named_sequence @__transform_main(%arg1: !transform.any_op {transform.readonly}) {
     %0 = transform.structured.match ops{["xegpu.dpas"]} in %arg1 : (!transform.any_op) -> !transform.any_op
     // CHECK: transform.xegpu.set_dpas_layout %{{.*}}
-    transform.xegpu.set_dpas_layout %0 index = 2 sg_layout = [8, 4] sg_data = [32, 64] load_data = [8, 16] inst_data = [8, 16] : !transform.any_op
-    transform.yield
-  }
-}
-
-// -----
-
-// CHECK-LABEL: @set_dpas_layout_load_a
-func.func @set_dpas_layout_load_a(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf16>) {
-  // CHECK: %[[V0:.+]] = xegpu.create_nd_tdesc %arg0
-  // CHECK-SAME: #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 32], inst_data = [32, 16]>>
-  %0 = xegpu.create_nd_tdesc %arg0[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x32xf16>
-  // CHECK: %[[V1:.+]] = xegpu.load_nd %[[V0]]
-  // CHECK: %[[V2:.+]] = xegpu.convert_layout %[[V1]]
-  // CHECK-SAME: resMap = #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 32], inst_data = [8, 16]>
-  // CHECK-SAME: srcMap = #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 32], inst_data = [32, 16]>
-  %1 = xegpu.load_nd %0  : !xegpu.tensor_desc<256x32xf16> -> vector<256x32xf16>
-  %2 = xegpu.create_nd_tdesc %arg1[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<32x256xf16>
-  %3 = xegpu.load_nd %2  : !xegpu.tensor_desc<32x256xf16> -> vector<32x256xf16>
-  %4 = xegpu.create_nd_tdesc %arg2[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x256xf16>
-  %5 = xegpu.load_nd %4  : !xegpu.tensor_desc<256x256xf16> -> vector<256x256xf16>
-  // CHECK: = xegpu.dpas %[[V2]]
-  %6 = xegpu.dpas %1, %3, %5 : vector<256x32xf16>, vector<32x256xf16>, vector<256x256xf16> -> vector<256x256xf16>
-  return
-}
-
-module attributes {transform.with_named_sequence} {
-  transform.named_sequence @__transform_main(%arg1: !transform.any_op {transform.readonly}) {
-    %0 = transform.structured.match ops{["xegpu.dpas"]} in %arg1 : (!transform.any_op) -> !transform.any_op
-    // CHECK: transform.xegpu.set_dpas_layout %{{.*}}
-    transform.xegpu.set_dpas_layout %0 index = 0 sg_layout = [8, 4] sg_data = [32, 32] load_data = [32, 16] inst_data = [8, 16] : !transform.any_op
+    transform.xegpu.set_dpas_layout %0 index = 2 sg_layout = [8, 4] sg_data = [32, 64] inst_data = [8, 16] : !transform.any_op
     transform.yield
   }
 }

@@ -28,7 +28,6 @@ class SetDPASLayoutOp(SetDPASLayoutOp):
         sg_data: Union[Sequence[int], Attribute],
         inst_data: Union[Sequence[int], Attribute],
         *,
-        load_data: Optional[Union[Sequence[int], Attribute]] = None,
         loc=None,
         ip=None,
     ):
@@ -38,7 +37,6 @@ class SetDPASLayoutOp(SetDPASLayoutOp):
             sg_layout,
             sg_data,
             inst_data,
-            loadData=load_data,
             loc=loc,
             ip=ip
         )

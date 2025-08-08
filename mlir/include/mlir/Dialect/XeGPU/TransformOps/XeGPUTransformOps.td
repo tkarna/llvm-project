@@ -51,23 +51,20 @@ def SetDPASLayoutOp : Op<Transform_Dialect, "xegpu.set_dpas_layout", [
     Given a `xegpu.dpas` operation, this transform adds `xegpu.layout`
     attribute to it's operand's tensor descriptor. The target operand is
     defined by the `tileIndex` argument. The layout is defined by the
-    `sg_layout`, `sg_data` and `inst_data` attributes. The `load_data`
-    attribute defines the tile size used for loading the data. It must be a
-    multiple of the `inst_data` size.
+    `sg_layout`, `sg_data` and `inst_data` attributes.
   }];
 
   let arguments = (ins TransformHandleTypeInterface : $dpasOp,
                    I64Attr : $tileIndex,
                    DenseI32ArrayAttr : $sgLayout,
                    DenseI32ArrayAttr : $sgData,
-                   OptionalAttr<DenseI32ArrayAttr> : $loadData,
                    DenseI32ArrayAttr : $instData);
 
   let results = (outs);
 
   let assemblyFormat =
       "$dpasOp `index` `=` $tileIndex `sg_layout` `=` $sgLayout `sg_data` `=` "
-      "$sgData (`load_data` `=` $loadData^)? `inst_data` `=` $instData attr-dict `:` type($dpasOp)";
+      "$sgData `inst_data` `=` $instData attr-dict `:` type($dpasOp)";
 
   let extraClassDeclaration = [{
     ::mlir::DiagnosedSilenceableFailure applyToOne(

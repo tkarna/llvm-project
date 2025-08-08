@@ -15,7 +15,7 @@ include "mlir/Dialect/Transform/IR/TransformTypes.td"
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
-def XeGPUHoistDescOp : Op<Transform_Dialect, "xegpu.hoist_desc_ops", [
+def HoistDescOp : Op<Transform_Dialect, "xegpu.hoist_desc_ops", [
   TransformOpInterface, TransformEachOpTrait,
   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
 ]> {
@@ -41,7 +41,7 @@ def XeGPUHoistDescOp : Op<Transform_Dialect, "xegpu.hoist_desc_ops", [
   }];
 }
 
-def XeGPUSetDPASLayoutOp : Op<Transform_Dialect, "xegpu.set_dpas_layout", [
+def SetDPASLayoutOp : Op<Transform_Dialect, "xegpu.set_dpas_layout", [
   TransformOpInterface, TransformEachOpTrait,
   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
 ]> {
@@ -78,7 +78,7 @@ def XeGPUSetDPASLayoutOp : Op<Transform_Dialect, "xegpu.set_dpas_layout", [
   }];
 }
 
-def XeGPUInsertPrefetchOp : Op<Transform_Dialect, "xegpu.insert_prefetch",
+def InsertPrefetchOp : Op<Transform_Dialect, "xegpu.insert_prefetch",
   [FunctionalStyleTransformOpTrait, MemoryEffectsOpInterface,
    DeclareOpInterfaceMethods<TransformOpInterface>]> {
 
@@ -104,7 +104,7 @@ def XeGPUInsertPrefetchOp : Op<Transform_Dialect, "xegpu.insert_prefetch",
 // TODO this should be handled with gpu transform ops.
 // Add gpu mapping to scf.forall op and use something like
 // transform.gpu.map_forall_to_blocks to convert to gpu.launch op.
-def XeGPUSetGPULaunchThreadsOp
+def SetGPULaunchThreadsOp
     : Op<Transform_Dialect, "xegpu.set_gpu_launch_threads", [
       TransformOpInterface, TransformEachOpTrait,
       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>

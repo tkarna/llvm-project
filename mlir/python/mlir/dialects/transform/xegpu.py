@@ -17,8 +17,8 @@ from typing import Optional, Sequence, Union, overload
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
-class XeGPUSetDPASLayoutOp(XeGPUSetDPASLayoutOp):
-    """Specialization for XeGPUSetDPASLayoutOp class."""
+class SetDPASLayoutOp(SetDPASLayoutOp):
+    """Specialization for SetDPASLayoutOp class."""
 
     def __init__(
         self,
@@ -45,8 +45,8 @@ class XeGPUSetDPASLayoutOp(XeGPUSetDPASLayoutOp):
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
-class XeGPUInsertPrefetchOp(XeGPUInsertPrefetchOp):
-    """Specialization for XeGPUInsertPrefetchOp class."""
+class InsertPrefetchOp(InsertPrefetchOp):
+    """Specialization for InsertPrefetchOp class."""
 
     def __init__(
         self,
@@ -75,8 +75,8 @@ class XeGPUInsertPrefetchOp(XeGPUInsertPrefetchOp):
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
-class XeGPUHoistDescOp(XeGPUHoistDescOp):
-    """Specialization for XeGPUHoistDescOp class."""
+class HoistDescOp(HoistDescOp):
+    """Specialization for HoistDescOp class."""
 
     def __init__(
         self,
@@ -94,8 +94,8 @@ class XeGPUHoistDescOp(XeGPUHoistDescOp):
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
-class XeGPUSetGPULaunchThreadsOp(XeGPUSetGPULaunchThreadsOp):
-    """Specialization for XeGPUSetGPULaunchThreadsOp class."""
+class SetGPULaunchThreadsOp(SetGPULaunchThreadsOp):
+    """Specialization for SetGPULaunchThreadsOp class."""
 
     def __init__(
         self,

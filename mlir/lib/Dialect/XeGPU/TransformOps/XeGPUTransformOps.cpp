@@ -413,7 +413,7 @@ scf::ForOp fuseForLoops(scf::ForOp target, scf::ForOp source,
   return fusedLoop;
 }
 
-DiagnosedSilenceableFailure transform::XeGPUHoistDescOp::applyToOne(
+DiagnosedSilenceableFailure transform::HoistDescOp::applyToOne(
     transform::TransformRewriter &rewriter, Operation *target,
     transform::ApplyToEachResultList &results,
     transform::TransformState &state) {
@@ -440,7 +440,7 @@ DiagnosedSilenceableFailure transform::XeGPUHoistDescOp::applyToOne(
   return DiagnosedSilenceableFailure::success();
 }
 
-void transform::XeGPUHoistDescOp::getEffects(
+void transform::HoistDescOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   consumesHandle(getLoopMutable(), effects);
   producesHandle(getOperation()->getOpResults(), effects);
@@ -448,7 +448,7 @@ void transform::XeGPUHoistDescOp::getEffects(
 }
 
 DiagnosedSilenceableFailure
-transform::XeGPUInsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
+transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
                                         transform::TransformResults &results,
                                         transform::TransformState &state) {
 
@@ -573,7 +573,7 @@ transform::XeGPUInsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
   return DiagnosedSilenceableFailure::success();
 }
 
-DiagnosedSilenceableFailure transform::XeGPUSetDPASLayoutOp::applyToOne(
+DiagnosedSilenceableFailure transform::SetDPASLayoutOp::applyToOne(
     transform::TransformRewriter &rewriter, Operation *target,
     transform::ApplyToEachResultList &results,
     transform::TransformState &state) {
@@ -668,13 +668,13 @@ DiagnosedSilenceableFailure transform::XeGPUSetDPASLayoutOp::applyToOne(
   return DiagnosedSilenceableFailure::success();
 }
 
-void transform::XeGPUSetDPASLayoutOp::getEffects(
+void transform::SetDPASLayoutOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   onlyReadsHandle(getDpasOpMutable(), effects);
   modifiesPayload(effects);
 }
 
-DiagnosedSilenceableFailure transform::XeGPUSetGPULaunchThreadsOp::applyToOne(
+DiagnosedSilenceableFailure transform::SetGPULaunchThreadsOp::applyToOne(
     transform::TransformRewriter &rewriter, Operation *target,
     transform::ApplyToEachResultList &results,
     transform::TransformState &state) {
@@ -705,7 +705,7 @@ DiagnosedSilenceableFailure transform::XeGPUSetGPULaunchThreadsOp::applyToOne(
   return DiagnosedSilenceableFailure::success();
 }
 
-void transform::XeGPUSetGPULaunchThreadsOp::getEffects(
+void transform::SetGPULaunchThreadsOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   onlyReadsHandle(getLaunchOpMutable(), effects);
   modifiesPayload(effects);

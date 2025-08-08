@@ -17,13 +17,13 @@ from typing import Optional, Sequence, Union, overload
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
-class SetDPASLayoutOp(SetDPASLayoutOp):
-    """Specialization for SetDPASLayoutOp class."""
+class SetOperandLayoutOp(SetOperandLayoutOp):
+    """Specialization for SetOperandLayoutOp class."""
 
     def __init__(
         self,
-        dpas_op: Union[Operation, Value],
-        tile_index: Union[int, Attribute],
+        target: Union[Operation, Value],
+        index: Union[int, Attribute],
         sg_layout: Union[Sequence[int], Attribute],
         sg_data: Union[Sequence[int], Attribute],
         inst_data: Union[Sequence[int], Attribute],
@@ -32,8 +32,8 @@ class SetDPASLayoutOp(SetDPASLayoutOp):
         ip=None,
     ):
         super().__init__(
-            dpas_op,
-            tile_index,
+            target,
+            index,
             sg_layout,
             sg_data,
             inst_data,
@@ -48,23 +48,22 @@ class InsertPrefetchOp(InsertPrefetchOp):
 
     def __init__(
         self,
-        dpas_op: Union[Operation, Value],
+        target: Union[Operation, Value],
         loop_op: Union[Operation, Value],
-        tile_index: Union[int, Attribute],
+        index: Union[int, Attribute],
         sg_layout: Union[Sequence[int], Attribute],
         sg_data: Union[Sequence[int], Attribute],
         loc=None,
         ip=None,
     ):
-        # results = get_op_result_or_op_results(dpas_op, loop_op)
-        transformed_dpas_type = transform.AnyOpType.get()
+        transformed_target_type = transform.AnyOpType.get()
         transformed_loop_type = transform.AnyOpType.get()
         super().__init__(
-            transformed_dpas_type,
+            transformed_target_type,
             transformed_loop_type,
-            _get_op_result_or_value(dpas_op),
+            _get_op_result_or_value(target),
             _get_op_result_or_value(loop_op),
-            tile_index,
+            index,
             sg_layout,
             sg_data,
             loc=loc,

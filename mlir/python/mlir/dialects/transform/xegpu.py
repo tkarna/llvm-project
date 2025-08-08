@@ -1,0 +1,112 @@
+#  Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+#  See https://llvm.org/LICENSE.txt for license information.
+#  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+from .._xegpu_transform_ops_gen import *
+from .._xegpu_transform_ops_gen import _Dialect
+
+try:
+    from ...ir import *
+    from ...dialects import transform
+    from .._ods_common import _cext as _ods_cext
+    from .._ods_common import get_op_result_or_value as _get_op_result_or_value
+except ImportError as e:
+    raise RuntimeError("Error loading imports from extension module") from e
+
+from typing import Optional, Sequence, Union, overload
+
+
+@_ods_cext.register_operation(_Dialect, replace=True)
+class XeGPUSetDPASLayoutOp(XeGPUSetDPASLayoutOp):
+    """Specialization for XeGPUSetDPASLayoutOp class."""
+
+    def __init__(
+        self,
+        dpas_op: Union[Operation, Value],
+        tile_index: Union[int, Attribute],
+        sg_layout: Union[Sequence[int], Attribute],
+        sg_data: Union[Sequence[int], Attribute],
+        inst_data: Union[Sequence[int], Attribute],
+        *,
+        load_data: Optional[Union[Sequence[int], Attribute]] = None,
+        loc=None,
+        ip=None,
+    ):
+        super().__init__(
+            dpas_op,
+            tile_index,
+            sg_layout,
+            sg_data,
+            inst_data,
+            loadData=load_data,
+            loc=loc,
+            ip=ip
+        )
+
+
+@_ods_cext.register_operation(_Dialect, replace=True)
+class XeGPUInsertPrefetchOp(XeGPUInsertPrefetchOp):
+    """Specialization for XeGPUInsertPrefetchOp class."""
+
+    def __init__(
+        self,
+        dpas_op: Union[Operation, Value],
+        loop_op: Union[Operation, Value],
+        tile_index: Union[int, Attribute],
+        sg_layout: Union[Sequence[int], Attribute],
+        sg_data: Union[Sequence[int], Attribute],
+        loc=None,
+        ip=None,
+    ):
+        # results = get_op_result_or_op_results(dpas_op, loop_op)
+        transformed_dpas_type = transform.AnyOpType.get()
+        transformed_loop_type = transform.AnyOpType.get()
+        super().__init__(
+            transformed_dpas_type,
+            transformed_loop_type,
+            _get_op_result_or_value(dpas_op),
+            _get_op_result_or_value(loop_op),
+            tile_index,
+            sg_layout,
+            sg_data,
+            loc=loc,
+            ip=ip
+        )
+
+
+@_ods_cext.register_operation(_Dialect, replace=True)
+class XeGPUHoistDescOp(XeGPUHoistDescOp):
+    """Specialization for XeGPUHoistDescOp class."""
+
+    def __init__(
+        self,
+        loop_op: Union[Operation, Value],
+        loc=None,
+        ip=None,
+    ):
+        transformed_loop_type = transform.AnyOpType.get()
+        super().__init__(
+            transformed_loop_type,
+            _get_op_result_or_value(loop_op),
+            loc=loc,
+            ip=ip
+        )
+
+
+@_ods_cext.register_operation(_Dialect, replace=True)
+class XeGPUSetGPULaunchThreadsOp(XeGPUSetGPULaunchThreadsOp):
+    """Specialization for XeGPUSetGPULaunchThreadsOp class."""
+
+    def __init__(
+        self,
+        launch_op: Union[Operation, Value],
+        threads: Union[int, Attribute],
+        loc=None,
+        ip=None,
+    ):
+        super().__init__(
+            _get_op_result_or_value(launch_op),
+            threads,
+            loc=loc,
+            ip=ip
+        )

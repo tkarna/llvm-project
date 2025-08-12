@@ -35,7 +35,7 @@ def getDescOp():
 
 
 @run
-def getDescOpDefault():
+def getDescOpDefaultIndex():
     sequence = transform.SequenceOp(
         transform.FailurePropagationMode.Propagate,
         [],
@@ -46,8 +46,54 @@ def getDescOpDefault():
             sequence.bodyTarget,
         )
         transform.YieldOp()
-    # CHECK-LABEL: TEST: getDescOp
+    # CHECK-LABEL: TEST: getDescOpDefaultIndex
     # CHECK: transform.xegpu.get_desc_op %
+
+
+@run
+def setResultLayout():
+    sequence = transform.SequenceOp(
+        transform.FailurePropagationMode.Propagate,
+        [],
+        transform.OperationType.get("xegpu.create_nd_tdesc"),
+    )
+    with InsertionPoint(sequence.body):
+        xegpu.SetResultLayoutOp(
+            sequence.bodyTarget,
+            index=0,
+            sg_layout=[6, 4],
+            sg_data=[32, 16],
+            inst_data=[8, 16]
+        )
+        transform.YieldOp()
+    # CHECK-LABEL: TEST: setResultLayout
+    # CHECK: %0 = transform.xegpu.set_result_layout %
+    # CHECK: index = 0
+    # CHECK: sg_layout = [6, 4]
+    # CHECK: sg_data = [32, 16]
+    # CHECK: inst_data = [8, 16]
+
+
+@run
+def setResultLayoutDefaultIndex():
+    sequence = transform.SequenceOp(
+        transform.FailurePropagationMode.Propagate,
+        [],
+        transform.OperationType.get("xegpu.create_nd_tdesc"),
+    )
+    with InsertionPoint(sequence.body):
+        xegpu.SetResultLayoutOp(
+            sequence.bodyTarget,
+            sg_layout=[6, 4],
+            sg_data=[32, 16],
+            inst_data=[8, 16]
+        )
+        transform.YieldOp()
+    # CHECK-LABEL: TEST: setResultLayoutDefaultIndex
+    # CHECK: %0 = transform.xegpu.set_result_layout %
+    # CHECK: sg_layout = [6, 4]
+    # CHECK: sg_data = [32, 16]
+    # CHECK: inst_data = [8, 16]
 
 
 @run

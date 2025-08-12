@@ -574,6 +574,44 @@ transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
   return DiagnosedSilenceableFailure::success();
 }
 
+DiagnosedSilenceableFailure
+transform::GetDescOp::applyToOne(transform::TransformRewriter &rewriter,
+                                 Operation *target,
+                                 transform::ApplyToEachResultList &results,
+                                 transform::TransformState &state) {
+
+  // For now only DPAS op is supported.
+  auto targetOp = dyn_cast<xegpu::DpasOp>(target);
+  if (!targetOp) {
+    auto diag = emitSilenceableFailure(getLoc())
+                << "Expected a xegpu.dpas op, but got: " << target->getName();
+    diag.attachNote(target->getLoc()) << "target op";
+    return diag;
+  }
+
+  int64_t operandIndex = getOperandIndex() ? getOperandIndex().value() : 0;
+  if (operandIndex >= targetOp.getNumOperands()) {
+    return emitSilenceableFailure(getLoc())
+           << "operandIndex exceeds the number of op operands.";
+  }
+
+  Value opVec = targetOp.getOperation()->getOperand(operandIndex);
+  auto maybeDescOp = findDescriptorOp(opVec, targetOp.getOperation());
+  if (!maybeDescOp) {
+    return emitSilenceableFailure(getLoc()) << "Could not find descriptor op.";
+  }
+
+  results.push_back(*maybeDescOp);
+  return DiagnosedSilenceableFailure::success();
+}
+
+void transform::GetDescOp::getEffects(
+    ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  onlyReadsHandle(getTargetMutable(), effects);
+  producesHandle(getOperation()->getOpResults(), effects);
+  modifiesPayload(effects);
+}
+
 DiagnosedSilenceableFailure transform::SetOperandLayoutOp::applyToOne(
     transform::TransformRewriter &rewriter, Operation *target,
     transform::ApplyToEachResultList &results,

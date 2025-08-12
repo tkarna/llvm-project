@@ -17,6 +17,28 @@ from typing import Optional, Sequence, Union, overload
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
+class GetDescOp(GetDescOp):
+    """Specialization for GetDescOp class."""
+
+    def __init__(
+        self,
+        target: Union[Operation, Value],
+        *,
+        index: Optional[Union[int, Attribute]] = None,
+        loc=None,
+        ip=None,
+    ):
+        desc_type = transform.AnyOpType.get()
+        super().__init__(
+            desc_type,
+            _get_op_result_or_value(target),
+            operandIndex=index,
+            loc=loc,
+            ip=ip
+        )
+
+
+@_ods_cext.register_operation(_Dialect, replace=True)
 class SetOperandLayoutOp(SetOperandLayoutOp):
     """Specialization for SetOperandLayoutOp class."""
 

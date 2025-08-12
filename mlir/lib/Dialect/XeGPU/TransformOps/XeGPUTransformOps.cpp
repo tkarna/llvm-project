@@ -612,6 +612,70 @@ void transform::GetDescOp::getEffects(
   modifiesPayload(effects);
 }
 
+
+DiagnosedSilenceableFailure transform::SetResultLayoutOp::applyToOne(
+    transform::TransformRewriter &rewriter, Operation *target,
+    transform::ApplyToEachResultList &results,
+    transform::TransformState &state) {
+
+  int64_t resultIndex = getResultIndex() ? getResultIndex().value() : 0;
+  if (resultIndex >= target->getNumResults()) {
+    return emitSilenceableFailure(getLoc())
+           << "resultIndex exceeds the number of op results.";
+  }
+
+  auto sgLayout = getSgLayout();
+  if (sgLayout.size() != 2) {
+    return emitSilenceableFailure(getLoc())
+           << "Expected sg_layout to be a 2D vector";
+  }
+
+  auto sgData = getSgData();
+  if (sgData.size() != 2) {
+    return emitSilenceableFailure(getLoc())
+           << "Expected sg_data to be a 2D vector";
+  }
+
+  auto instData = getInstData();
+  if (instData.size() != 2) {
+    return emitSilenceableFailure(getLoc())
+           << "Expected inst_data to be a 2D vector";
+  }
+
+  // For now only desc op or dpas op are supported.
+  auto descOp = dyn_cast<xegpu::CreateNdDescOp>(target);
+  auto dpasOp = dyn_cast<xegpu::DpasOp>(target);
+  if (!descOp && !dpasOp) {
+    auto diag = emitSilenceableFailure(getLoc())
+                << "Expected a xegpu.create_nd_desc or xegpu.dpas op, but got: " << target->getName();
+    diag.attachNote(target->getLoc()) << "target op";
+    return diag;
+  }
+
+  auto layoutAttr =
+      createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
+  if (descOp) {
+    // Replace desc op with a new op that has the layout attr in return type.
+    auto newdescOp = setDescLayout(rewriter, descOp, layoutAttr);
+    results.push_back(newdescOp.getOperation());
+  }
+  if (dpasOp) {
+    // Set layout attribute for the dpas op result.
+    // NOTE this actually does not create a new handle ...
+    // NOTE should not invalidate the handle ... should be a separate op?
+    xegpu::setLayoutAttr(dpasOp.getOperation()->getResults()[0], layoutAttr);
+    results.push_back(dpasOp.getOperation());
+  }
+  return DiagnosedSilenceableFailure::success();
+}
+
+void transform::SetResultLayoutOp::getEffects(
+    ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  consumesHandle(getTargetMutable(), effects);
+  producesHandle(getOperation()->getOpResults(), effects);
+  modifiesPayload(effects);
+}
+
 DiagnosedSilenceableFailure transform::SetOperandLayoutOp::applyToOne(
     transform::TransformRewriter &rewriter, Operation *target,
     transform::ApplyToEachResultList &results,

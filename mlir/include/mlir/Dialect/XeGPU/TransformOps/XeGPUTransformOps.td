@@ -67,6 +67,41 @@ def GetDescOp : Op<Transform_Dialect, "xegpu.get_desc_op", [
   }];
 }
 
+def SetResultLayoutOp : Op<Transform_Dialect, "xegpu.set_result_layout", [
+  TransformOpInterface, TransformEachOpTrait,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
+
+  let summary = "Set xegpu.layout attribute to an xegpu op result.";
+  let description = [{
+    Given an xegpu operation, this transform adds `xegpu.layout`
+    attribute to it's result's tensor descriptor. The target result is
+    defined by the `index` argument. The layout is defined by the
+    `sg_layout`, `sg_data` and `inst_data` attributes. If `index` is not
+    defined, `index=0` is used. Returns a handle to a transformed op.
+  }];
+
+  let arguments = (ins TransformHandleTypeInterface : $target,
+                   OptionalAttr<I64Attr> : $resultIndex,
+                   DenseI32ArrayAttr : $sgLayout,
+                   DenseI32ArrayAttr : $sgData,
+                   DenseI32ArrayAttr : $instData);
+
+  let results = (outs TransformHandleTypeInterface : $transformed);
+
+  let assemblyFormat =
+      "$target (`index` `=` $resultIndex^)? `sg_layout` `=` $sgLayout `sg_data` `=` "
+      "$sgData `inst_data` `=` $instData attr-dict `:` functional-type(operands, results)";
+
+  let extraClassDeclaration = [{
+    ::mlir::DiagnosedSilenceableFailure applyToOne(
+        ::mlir::transform::TransformRewriter & rewriter,
+        ::mlir::Operation * target,
+        ::mlir::transform::ApplyToEachResultList & results,
+        ::mlir::transform::TransformState & state);
+  }];
+}
+
 def SetOperandLayoutOp : Op<Transform_Dialect, "xegpu.set_operand_layout", [
   TransformOpInterface, TransformEachOpTrait,
   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>

@@ -39,6 +39,34 @@ class GetDescOp(GetDescOp):
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
+class SetResultLayoutOp(SetResultLayoutOp):
+    """Specialization for SetResultLayoutOp class."""
+
+    def __init__(
+        self,
+        target: Union[Operation, Value],
+        sg_layout: Union[Sequence[int], Attribute],
+        sg_data: Union[Sequence[int], Attribute],
+        inst_data: Union[Sequence[int], Attribute],
+        *,
+        index: Optional[Union[int, Attribute]] = None,
+        loc=None,
+        ip=None,
+    ):
+        transformed_type = transform.AnyOpType.get()
+        super().__init__(
+            transformed_type,
+            target,
+            sg_layout,
+            sg_data,
+            inst_data,
+            resultIndex=index,
+            loc=loc,
+            ip=ip
+        )
+
+
+@_ods_cext.register_operation(_Dialect, replace=True)
 class SetOperandLayoutOp(SetOperandLayoutOp):
     """Specialization for SetOperandLayoutOp class."""
 

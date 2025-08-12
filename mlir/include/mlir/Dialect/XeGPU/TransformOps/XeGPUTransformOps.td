@@ -41,6 +41,32 @@ def HoistDescOp : Op<Transform_Dialect, "xegpu.hoist_desc_ops", [
   }];
 }
 
+def GetDescOp : Op<Transform_Dialect, "xegpu.get_desc_op", [
+  TransformOpInterface, TransformEachOpTrait,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
+
+  let summary = "Get a handle to the descriptor op of an operand value.";
+  let description = [{
+    Given an xegpu operation and its operand `index`, returns a handle to the `xegpu.create_nd_tdesc` descriptor op. If `index` is not defined, `index=0` is used.
+  }];
+
+  let arguments = (ins TransformHandleTypeInterface : $target,
+                   OptionalAttr<I64Attr> : $operandIndex);
+
+  let results = (outs TransformHandleTypeInterface : $descHandle);
+  let assemblyFormat =
+      "$target (`index` `=` $operandIndex^)? attr-dict `:` functional-type(operands, results)";
+
+  let extraClassDeclaration = [{
+    ::mlir::DiagnosedSilenceableFailure applyToOne(
+        ::mlir::transform::TransformRewriter & rewriter,
+        ::mlir::Operation * target,
+        ::mlir::transform::ApplyToEachResultList & results,
+        ::mlir::transform::TransformState & state);
+  }];
+}
+
 def SetOperandLayoutOp : Op<Transform_Dialect, "xegpu.set_operand_layout", [
   TransformOpInterface, TransformEachOpTrait,
   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>

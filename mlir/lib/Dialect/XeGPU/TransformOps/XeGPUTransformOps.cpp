@@ -325,14 +325,15 @@ xegpu::LayoutAttr createLayoutAttr(MLIRContext *ctx, ArrayRef<int32_t> sgLayout,
 xegpu::CreateNdDescOp setDescLayout(transform::TransformRewriter &rewriter,
                                     xegpu::CreateNdDescOp descOp,
                                     xegpu::LayoutAttr layout) {
-  auto ctx = rewriter.getContext();
   auto oldTensorDesc = descOp.getResult();
   auto descShapedType = cast<ShapedType>(oldTensorDesc.getType());
-  // This discards any block_tdesc_attr attributes.
-  auto descType = xegpu::TensorDescType::get(ctx, descShapedType.getShape(),
-                                             descShapedType.getElementType(),
-                                             /*encoding=*/nullptr,
-                                             /*layout=*/layout);
+  // TODO inherit desc attributes from old op (if any)
+  auto descType = xegpu::TensorDescType::get(
+      descShapedType.getShape(), descShapedType.getElementType(),
+      /*array_length=*/1,
+      /*boundary_check=*/true,
+      /*memory_space=*/xegpu::MemorySpace::Global,
+      /*layout=*/layout);
 
   rewriter.setInsertionPointAfter(descOp);
   auto newDescOp = rewriter.replaceOpWithNewOp<xegpu::CreateNdDescOp>(
@@ -589,7 +590,7 @@ transform::GetDescOp::applyToOne(transform::TransformRewriter &rewriter,
     return diag;
   }
 
-  int64_t operandIndex = getOperandIndex() ? getOperandIndex().value() : 0;
+  int64_t operandIndex = getOperandIndex();
   if (operandIndex >= targetOp.getNumOperands()) {
     return emitSilenceableFailure(getLoc())
            << "operandIndex exceeds the number of op operands.";
@@ -618,7 +619,7 @@ DiagnosedSilenceableFailure transform::SetResultLayoutOp::applyToOne(
     transform::ApplyToEachResultList &results,
     transform::TransformState &state) {
 
-  int64_t resultIndex = getResultIndex() ? getResultIndex().value() : 0;
+  int64_t resultIndex = getResultIndex();
   if (resultIndex >= target->getNumResults()) {
     return emitSilenceableFailure(getLoc())
            << "resultIndex exceeds the number of op results.";
@@ -642,30 +643,21 @@ DiagnosedSilenceableFailure transform::SetResultLayoutOp::applyToOne(
            << "Expected inst_data to be a 2D vector";
   }
 
-  // For now only desc op or dpas op are supported.
+  // For now only create_nd_desc op is supported.
   auto descOp = dyn_cast<xegpu::CreateNdDescOp>(target);
-  auto dpasOp = dyn_cast<xegpu::DpasOp>(target);
-  if (!descOp && !dpasOp) {
+  if (!descOp) {
     auto diag = emitSilenceableFailure(getLoc())
-                << "Expected a xegpu.create_nd_desc or xegpu.dpas op, but got: " << target->getName();
+                << "Expected a xegpu.create_nd_desc op, but got: "
+                << target->getName();
     diag.attachNote(target->getLoc()) << "target op";
     return diag;
   }
 
+  // Set layout attr in desc op's return type. Replaces old desc op.
   auto layoutAttr =
       createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
-  if (descOp) {
-    // Replace desc op with a new op that has the layout attr in return type.
-    auto newdescOp = setDescLayout(rewriter, descOp, layoutAttr);
-    results.push_back(newdescOp.getOperation());
-  }
-  if (dpasOp) {
-    // Set layout attribute for the dpas op result.
-    // NOTE this actually does not create a new handle ...
-    // NOTE should not invalidate the handle ... should be a separate op?
-    xegpu::setLayoutAttr(dpasOp.getOperation()->getResults()[0], layoutAttr);
-    results.push_back(dpasOp.getOperation());
-  }
+  auto newdescOp = setDescLayout(rewriter, descOp, layoutAttr);
+  results.push_back(newdescOp.getOperation());
   return DiagnosedSilenceableFailure::success();
 }
 
@@ -676,7 +668,76 @@ void transform::SetResultLayoutOp::getEffects(
   modifiesPayload(effects);
 }
 
-DiagnosedSilenceableFailure transform::SetOperandLayoutOp::applyToOne(
+DiagnosedSilenceableFailure transform::SetOpLayoutAttrOp::applyToOne(
+    transform::TransformRewriter &rewriter, Operation *target,
+    transform::ApplyToEachResultList &results,
+    transform::TransformState &state) {
+
+  bool resultTarget = getResult();
+  bool operandTarget = getOperand();
+
+  if (resultTarget && operandTarget) {
+    return emitSilenceableFailure(getLoc())
+           << "`result` and `operand` cannot be both set.";
+  }
+  if (!resultTarget && !operandTarget) {
+    return emitSilenceableFailure(getLoc())
+           << "Either `result` or `operand` must be set.";
+  }
+
+  int64_t index = getIndex();
+  if (resultTarget && index >= target->getNumResults()) {
+    return emitSilenceableFailure(getLoc())
+           << "index exceeds the number of op results.";
+  }
+  if (!resultTarget && index >= target->getNumOperands()) {
+    return emitSilenceableFailure(getLoc())
+           << "index exceeds the number of op operands.";
+  }
+
+  auto sgLayout = getSgLayout();
+  if (sgLayout.size() != 2) {
+    return emitSilenceableFailure(getLoc())
+           << "Expected sg_layout to be a 2D vector";
+  }
+
+  auto sgData = getSgData();
+  if (sgData.size() != 2) {
+    return emitSilenceableFailure(getLoc())
+           << "Expected sg_data to be a 2D vector";
+  }
+
+  auto instData = getInstData();
+  if (instData.size() != 2) {
+    return emitSilenceableFailure(getLoc())
+           << "Expected inst_data to be a 2D vector";
+  }
+
+  // For now only dpas op is supported.
+  if (!isa<xegpu::DpasOp>(target)) {
+    auto diag = emitSilenceableFailure(getLoc())
+                << "Expected a xegpu.dpas op, but got: " << target->getName();
+    diag.attachNote(target->getLoc()) << "target op";
+    return diag;
+  }
+  auto layoutAttr =
+      createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
+  // Set layout attribute for the op result or operand
+  if (resultTarget) {
+    xegpu::setLayoutAttr(target->getResult(index), layoutAttr);
+  } else {
+    xegpu::setLayoutAttr(target->getOpOperand(index), layoutAttr);
+  }
+  return DiagnosedSilenceableFailure::success();
+}
+
+void transform::SetOpLayoutAttrOp::getEffects(
+    ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  onlyReadsHandle(getTargetMutable(), effects);
+  modifiesPayload(effects);
+}
+
+DiagnosedSilenceableFailure transform::ConvertOperandLayoutOp::applyToOne(
     transform::TransformRewriter &rewriter, Operation *target,
     transform::ApplyToEachResultList &results,
     transform::TransformState &state) {
@@ -714,26 +775,48 @@ DiagnosedSilenceableFailure transform::SetOperandLayoutOp::applyToOne(
            << "Expected inst_data to be a 2D vector";
   }
 
-  // Replace descriptor op using layout attribute.
-  Value opVec = targetOp.getOperation()->getOperand(operandIndex);
+  // Find desc op.
+  Value opVec = target->getOperand(operandIndex);
   auto maybeDescOp = findDescriptorOp(opVec, targetOp.getOperation());
   if (!maybeDescOp) {
     return emitSilenceableFailure(getLoc()) << "Could not find descriptor op.";
   }
   auto descOp = *maybeDescOp;
-  // Set layout attribute.
+  // Get load op.
+  auto maybeLoadOp = getUserOfType<xegpu::LoadNdOp>(descOp.getResult());
+  if (!maybeLoadOp) {
+    return emitSilenceableFailure(getLoc())
+           << "Expected a xegpu.load_nd op as a user of the descriptor op.";
+  }
+  auto loadOp = *maybeLoadOp;
+  // Get load op operand value layout
+  auto producerLayoutAttr = xegpu::getLayoutAttr(loadOp.getOperand(0));
+  if (!producerLayoutAttr) {
+    return emitSilenceableFailure(getLoc())
+           << "Operand producer op does not have a layout attr.";
+  }
+
+  // New layout attr
   auto layoutAttr =
       createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
-  descOp = setDescLayout(rewriter, descOp, layoutAttr);
-  if (operandIndex == 2) {
-    // C operand: set layout attribute for the dpas op result.
-    xegpu::setLayoutAttr(targetOp.getOperation()->getResults()[0], layoutAttr);
+
+  if (producerLayoutAttr != layoutAttr) {
+    rewriter.setInsertionPointAfter(loadOp.getOperation());
+    auto source = loadOp.getResult();
+    auto convLayoutOp = rewriter.create<xegpu::ConvertLayoutOp>(
+        loadOp.getLoc(), source.getType(), source, producerLayoutAttr,
+        layoutAttr);
+    // Replace load op result with the converted layout.
+    rewriter.replaceUsesWithIf(
+        source, convLayoutOp.getResult(), [&](OpOperand &use) {
+          return use.getOwner() != convLayoutOp.getOperation();
+        });
   }
 
   return DiagnosedSilenceableFailure::success();
 }
 
-void transform::SetOperandLayoutOp::getEffects(
+void transform::ConvertOperandLayoutOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   onlyReadsHandle(getTargetMutable(), effects);
   modifiesPayload(effects);

@@ -52,7 +52,7 @@ def GetDescOp : Op<Transform_Dialect, "xegpu.get_desc_op", [
   }];
 
   let arguments = (ins TransformHandleTypeInterface : $target,
-                   OptionalAttr<I64Attr> : $operandIndex);
+                   DefaultValuedOptionalAttr<I64Attr, "0"> : $operandIndex);
 
   let results = (outs TransformHandleTypeInterface : $descHandle);
   let assemblyFormat =
@@ -82,7 +82,7 @@ def SetResultLayoutOp : Op<Transform_Dialect, "xegpu.set_result_layout", [
   }];
 
   let arguments = (ins TransformHandleTypeInterface : $target,
-                   OptionalAttr<I64Attr> : $resultIndex,
+                   DefaultValuedOptionalAttr<I64Attr, "0"> : $resultIndex,
                    DenseI32ArrayAttr : $sgLayout,
                    DenseI32ArrayAttr : $sgData,
                    DenseI32ArrayAttr : $instData);
@@ -102,15 +102,52 @@ def SetResultLayoutOp : Op<Transform_Dialect, "xegpu.set_result_layout", [
   }];
 }
 
-def SetOperandLayoutOp : Op<Transform_Dialect, "xegpu.set_operand_layout", [
+def SetOpLayoutAttrOp : Op<Transform_Dialect, "xegpu.set_op_layout_attr", [
   TransformOpInterface, TransformEachOpTrait,
   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
 ]> {
 
-  let summary = "Set xegpu.layout attribute to an xegpu op operand.";
+  let summary = "Set xegpu.layout attribute of an op.";
   let description = [{
-    Given an xegpu operation, this transform adds `xegpu.layout`
-    attribute to it's operand's tensor descriptor. The target operand is
+    Sets the `xegpu.layout` attribute of an op. Sets either the
+    `layout_result_{index}` or `layout_operand_{index}` attribute. The target
+    operand/result value is defined by the `index` argument. The layout is
+    defined by the `sg_layout`, `sg_data` and `inst_data` attributes.
+  }];
+
+  let arguments = (ins TransformHandleTypeInterface : $target,
+                   DefaultValuedOptionalAttr<I64Attr, "0"> : $index,
+                   DenseI32ArrayAttr : $sgLayout,
+                   DenseI32ArrayAttr : $sgData,
+                   DenseI32ArrayAttr : $instData,
+                   DefaultValuedAttr<UnitAttr, "false">:$result,
+                   DefaultValuedAttr<UnitAttr, "false">:$operand
+                   );
+
+  let results = (outs);
+
+  let assemblyFormat =
+      "$target (`result` $result^)? (`operand` $operand^)? (`index` `=` $index^)? `sg_layout` `=` $sgLayout `sg_data` `=` "
+      "$sgData `inst_data` `=` $instData attr-dict `:` type($target)";
+
+  let extraClassDeclaration = [{
+    ::mlir::DiagnosedSilenceableFailure applyToOne(
+        ::mlir::transform::TransformRewriter & rewriter,
+        ::mlir::Operation * target,
+        ::mlir::transform::ApplyToEachResultList & results,
+        ::mlir::transform::TransformState & state);
+  }];
+}
+
+def ConvertOperandLayoutOp : Op<Transform_Dialect, "xegpu.convert_operand_layout", [
+  TransformOpInterface, TransformEachOpTrait,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
+
+  let summary = "Convert xegpu.layout attribute for an xegpu op operand.";
+  let description = [{
+    Adds an `xegpu.convert_layout` op
+    to convert the `xegpu.layout` attribute of an operand. The target operand is
     defined by the `operandIndex` argument. The layout is defined by the
     `sg_layout`, `sg_data` and `inst_data` attributes.
   }];

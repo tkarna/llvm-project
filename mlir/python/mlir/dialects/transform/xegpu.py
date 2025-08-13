@@ -67,8 +67,53 @@ class SetResultLayoutOp(SetResultLayoutOp):
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
-class SetOperandLayoutOp(SetOperandLayoutOp):
-    """Specialization for SetOperandLayoutOp class."""
+class SetOpLayoutAttrOp(SetOpLayoutAttrOp):
+    """Specialization for SetOpLayoutAttrOp class."""
+
+    def __init__(
+        self,
+        target: Union[Operation, Value],
+        sg_layout: Union[Sequence[int], Attribute],
+        sg_data: Union[Sequence[int], Attribute],
+        inst_data: Union[Sequence[int], Attribute],
+        *,
+        index: Union[int, Attribute] = None,
+        result: Union[bool, Attribute] = None,
+        operand: Union[bool, Attribute] = None,
+        loc=None,
+        ip=None,
+    ):
+        if result is None and operand is None:
+            result = True
+        super().__init__(
+            target,
+            sg_layout,
+            sg_data,
+            inst_data,
+            index=index,
+            result=result,
+            operand=operand,
+            loc=loc,
+            ip=ip
+        )
+        # __init__(
+        #     target: Union[mlir._mlir_libs._mlir.ir.Operation, mlir._mlir_libs._mlir.ir.Value],
+        #     sg_layout: Union[Sequence[int], mlir._mlir_libs._mlir.ir.Attribute],
+        #     sg_data: Union[Sequence[int], mlir._mlir_libs._mlir.ir.Attribute],
+        #     inst_data: Union[Sequence[int], mlir._mlir_libs._mlir.ir.Attribute],
+        #     *,
+        #     index: Union[int, mlir._mlir_libs._mlir.ir.Attribute] = None,
+        #     result: Union[bool, mlir._mlir_libs._mlir.ir.Attribute] = None,
+        #     operand: Union[bool, mlir._mlir_libs._mlir.ir.Attribute] = None,
+        #     loc=None,
+        #     ip=None
+        # )
+
+
+
+@_ods_cext.register_operation(_Dialect, replace=True)
+class ConvertOperandLayoutOp(ConvertOperandLayoutOp):
+    """Specialization for ConvertOperandLayoutOp class."""
 
     def __init__(
         self,

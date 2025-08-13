@@ -874,7 +874,7 @@ struct WgToSgArithConstantOp : public OpConversionPattern<arith::ConstantOp> {
     auto newType = VectorType::get(sgShape, vecType.getElementType());
     auto sgAttr = DenseElementsAttr::get(newType, singleVal);
     auto cstOp =
-        arith::ConstantOp::create(rewriter, op.getLoc(), newType, sgAttr);
+        rewriter.create<arith::ConstantOp>(op.getLoc(), newType, sgAttr);
     if (auto newLayout = layout.dropSgLayoutAndData())
       xegpu::setLayoutAttr(cstOp->getResult(0), newLayout);
     SmallVector<Value> newConsts(count, cstOp);

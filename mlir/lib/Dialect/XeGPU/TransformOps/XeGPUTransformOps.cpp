@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Transform/IR/TransformDialect.h"
 #include "mlir/Dialect/Transform/IR/TransformTypes.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
+#include "mlir/Dialect/Transform/Utils/Utils.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/Dialect/XeGPU/Utils/XeGPUUtils.h"
 #include "mlir/IR/DialectRegistry.h"
@@ -32,6 +33,7 @@
 #define DEBUG_TYPE "xegpu-transforms"
 
 using namespace mlir;
+using namespace mlir::transform;
 
 class XeGPUTransformDialectExtension
     : public transform::TransformDialectExtension<
@@ -61,6 +63,67 @@ void XeGPUTransformDialectExtension::init() {
 
 void mlir::xegpu::registerTransformDialectExtension(DialectRegistry &registry) {
   registry.addExtensions<XeGPUTransformDialectExtension>();
+}
+
+/// Assuming that `ofr` is an index attr or a param of index type
+/// or a transform dialect handle mapped to exactly one op
+/// with one index result, get that value and cast it to int type.
+static DiagnosedSilenceableFailure convertMixedValuesToInt(
+    transform::TransformState &state, TransformOpInterface transformOp,
+    SmallVectorImpl<int32_t> &result, ArrayRef<OpFoldResult> ofrs) {
+  for (OpFoldResult ofr : ofrs) {
+    // Attribute case.
+    if (auto attr = dyn_cast<Attribute>(ofr)) {
+      if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
+        result.push_back(intAttr.getInt());
+      } else {
+        return transformOp.emitDefiniteFailure() << "expected IntegerAttr";
+      }
+      continue;
+    }
+
+    // Transform param case.
+    Value transformValue = cast<Value>(ofr);
+    if (isa<TransformParamTypeInterface>(transformValue.getType())) {
+      ArrayRef<Attribute> params = state.getParams(transformValue);
+      if (params.size() != 1)
+        return transformOp.emitDefiniteFailure()
+               << "requires exactly one parameter associated";
+      result.push_back(
+          cast<IntegerAttr>(params.front()).getValue().getSExtValue());
+      continue;
+    }
+
+    // Payload value case.
+    auto payloadOps = state.getPayloadOps(transformValue);
+    if (!llvm::hasSingleElement(payloadOps)) {
+      DiagnosedSilenceableFailure diag =
+          transformOp.emitSilenceableError()
+          << "handle must be mapped to exactly one payload op";
+      diag.attachNote(transformValue.getLoc())
+          << "mapped to " << llvm::range_size(payloadOps) << " payload ops";
+      return diag;
+    }
+
+    Operation *op = *payloadOps.begin();
+    if (op->getNumResults() != 1 || !op->getResult(0).getType().isIndex()) {
+      DiagnosedSilenceableFailure diag =
+          transformOp.emitSilenceableError()
+          << "payload op must have exactly 1 index result";
+      diag.attachNote(op->getLoc())
+          << "has " << op->getNumResults() << " results";
+      return diag;
+    }
+
+    IntegerAttr intAttr;
+    if (!matchPattern(op->getResult(0), m_Constant(&intAttr)))
+      return transformOp.emitSilenceableError()
+             << "requires param or handle to be the result of a constant like "
+                "op";
+
+    result.push_back(intAttr.getInt());
+  }
+  return DiagnosedSilenceableFailure::success();
 }
 
 /// Recurse operands and collect all producer ops in the given region.
@@ -449,13 +512,34 @@ void transform::HoistDescOp::getEffects(
   modifiesPayload(effects);
 }
 
+void transform::InsertPrefetchOp::build(OpBuilder &builder,
+                                        OperationState &ostate, Value target,
+                                        Value loop, int64_t operandIndex,
+                                        ArrayRef<OpFoldResult> mixedSgLayout,
+                                        ArrayRef<OpFoldResult> mixedSgData) {
+  SmallVector<int64_t> staticSgLayout, staticSgData;
+  SmallVector<Value> dynamicSgLayout, dynamicSgData;
+  dispatchIndexOpFoldResults(mixedSgLayout, dynamicSgLayout, staticSgLayout);
+  dispatchIndexOpFoldResults(mixedSgData, dynamicSgData, staticSgData);
+  SmallVector<Type> resultTypes{target.getType(), loop.getType()};
+  build(builder, ostate,
+        /*resultTypes=*/resultTypes,
+        /*target=*/target,
+        /*loop=*/loop,
+        /*operandIndex=*/operandIndex,
+        /*sg_layout=*/dynamicSgLayout,
+        /*sg_data=*/dynamicSgData,
+        /*static_sg_layout=*/staticSgLayout,
+        /*static_sg_data=*/staticSgData);
+}
+
 DiagnosedSilenceableFailure
 transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
                                    transform::TransformResults &results,
                                    transform::TransformState &state) {
 
   auto targetOps = state.getPayloadOps(getTarget());
-  auto loopOps = state.getPayloadOps(getLoopOp());
+  auto loopOps = state.getPayloadOps(getLoop());
 
   if (!llvm::hasSingleElement(targetOps)) {
     return emitDefiniteFailure() << "requires exactly one targetOp handle (got "
@@ -493,13 +577,24 @@ transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
            << "operandIndex exceeds the number of op operands.";
   }
 
-  auto sgLayout = getSgLayout();
+  auto transformOp = cast<TransformOpInterface>(getOperation());
+
+  SmallVector<int32_t> sgLayout;
+  DiagnosedSilenceableFailure status =
+      convertMixedValuesToInt(state, transformOp, sgLayout, getMixedSgLayout());
+  if (!status.succeeded())
+    return status;
+
+  SmallVector<int32_t> sgData;
+  status =
+      convertMixedValuesToInt(state, transformOp, sgData, getMixedSgData());
+  if (!status.succeeded())
+    return status;
+
   if (sgLayout.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected sg_layout to be a 2D vector";
   }
-
-  auto sgData = getSgData();
   if (sgData.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected sg_data to be a 2D vector";
@@ -569,10 +664,20 @@ transform::InsertPrefetchOp::apply(transform::TransformRewriter &rewriter,
   }
 
   // Map result handles.
-  results.set(cast<OpResult>(getTransformedLoopOp()), {fusedLoop});
-  results.set(cast<OpResult>(getTransformedTargetOp()), {clonedTargetOp});
+  results.set(cast<OpResult>(getTransformedLoop()), {fusedLoop});
+  results.set(cast<OpResult>(getTransformedTarget()), {clonedTargetOp});
 
   return DiagnosedSilenceableFailure::success();
+}
+
+void transform::InsertPrefetchOp::getEffects(
+    ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  consumesHandle(getTargetMutable(), effects);
+  consumesHandle(getLoopMutable(), effects);
+  onlyReadsHandle(getSgLayoutMutable(), effects);
+  onlyReadsHandle(getSgDataMutable(), effects);
+  producesHandle(getOperation()->getOpResults(), effects);
+  modifiesPayload(effects);
 }
 
 DiagnosedSilenceableFailure
@@ -613,31 +718,68 @@ void transform::GetDescOp::getEffects(
   modifiesPayload(effects);
 }
 
+void transform::SetResultLayoutOp::build(OpBuilder &builder,
+                                         OperationState &result, Value target,
+                                         int64_t resultIndex,
+                                         ArrayRef<OpFoldResult> mixedSgLayout,
+                                         ArrayRef<OpFoldResult> mixedSgData,
+                                         ArrayRef<OpFoldResult> mixedInstData) {
+  SmallVector<int64_t> staticSgLayout, staticSgData, staticInstData;
+  SmallVector<Value> dynamicSgLayout, dynamicSgData, dynamicInstData;
+  dispatchIndexOpFoldResults(mixedSgLayout, dynamicSgLayout, staticSgLayout);
+  dispatchIndexOpFoldResults(mixedSgData, dynamicSgData, staticSgData);
+  dispatchIndexOpFoldResults(mixedInstData, dynamicInstData, staticInstData);
+  build(builder, result, target.getType(),
+        /*target=*/target,
+        /*resultIndex=*/resultIndex,
+        /*sg_layout=*/dynamicSgLayout,
+        /*sg_data=*/dynamicSgData,
+        /*inst_data=*/dynamicInstData,
+        /*static_sg_layout=*/staticSgLayout,
+        /*static_sg_data=*/staticSgData,
+        /*static_inst_data=*/staticInstData);
+}
 
-DiagnosedSilenceableFailure transform::SetResultLayoutOp::applyToOne(
-    transform::TransformRewriter &rewriter, Operation *target,
-    transform::ApplyToEachResultList &results,
-    transform::TransformState &state) {
+DiagnosedSilenceableFailure
+transform::SetResultLayoutOp::apply(transform::TransformRewriter &rewriter,
+                                    transform::TransformResults &results,
+                                    transform::TransformState &state) {
 
-  int64_t resultIndex = getResultIndex();
-  if (resultIndex >= target->getNumResults()) {
-    return emitSilenceableFailure(getLoc())
-           << "resultIndex exceeds the number of op results.";
+  auto targetOps = state.getPayloadOps(getTarget());
+  if (!llvm::hasSingleElement(targetOps)) {
+    return emitDefiniteFailure() << "requires exactly one targetOp handle (got "
+                                 << llvm::range_size(targetOps) << ")";
   }
+  Operation *target = *targetOps.begin();
 
-  auto sgLayout = getSgLayout();
+  auto transformOp = cast<TransformOpInterface>(getOperation());
+
+  SmallVector<int32_t> sgLayout;
+  DiagnosedSilenceableFailure status =
+      convertMixedValuesToInt(state, transformOp, sgLayout, getMixedSgLayout());
+  if (!status.succeeded())
+    return status;
+
+  SmallVector<int32_t> sgData;
+  status =
+      convertMixedValuesToInt(state, transformOp, sgData, getMixedSgData());
+  if (!status.succeeded())
+    return status;
+
+  SmallVector<int32_t> instData;
+  status =
+      convertMixedValuesToInt(state, transformOp, instData, getMixedInstData());
+  if (!status.succeeded())
+    return status;
+
   if (sgLayout.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected sg_layout to be a 2D vector";
   }
-
-  auto sgData = getSgData();
   if (sgData.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected sg_data to be a 2D vector";
   }
-
-  auto instData = getInstData();
   if (instData.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected inst_data to be a 2D vector";
@@ -657,21 +799,56 @@ DiagnosedSilenceableFailure transform::SetResultLayoutOp::applyToOne(
   auto layoutAttr =
       createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
   auto newdescOp = setDescLayout(rewriter, descOp, layoutAttr);
-  results.push_back(newdescOp.getOperation());
+
+  // Map result handles.
+  results.set(cast<OpResult>(getTransformed()), {newdescOp.getOperation()});
+
   return DiagnosedSilenceableFailure::success();
 }
 
 void transform::SetResultLayoutOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   consumesHandle(getTargetMutable(), effects);
+  onlyReadsHandle(getSgLayoutMutable(), effects);
+  onlyReadsHandle(getSgDataMutable(), effects);
+  onlyReadsHandle(getInstDataMutable(), effects);
   producesHandle(getOperation()->getOpResults(), effects);
   modifiesPayload(effects);
 }
 
-DiagnosedSilenceableFailure transform::SetOpLayoutAttrOp::applyToOne(
-    transform::TransformRewriter &rewriter, Operation *target,
-    transform::ApplyToEachResultList &results,
-    transform::TransformState &state) {
+void transform::SetOpLayoutAttrOp::build(
+    OpBuilder &builder, OperationState &ostate, Value target, int64_t index,
+    ArrayRef<OpFoldResult> mixedSgLayout, ArrayRef<OpFoldResult> mixedSgData,
+    ArrayRef<OpFoldResult> mixedInstData, bool result, bool operand) {
+  SmallVector<int64_t> staticSgLayout, staticSgData, staticInstData;
+  SmallVector<Value> dynamicSgLayout, dynamicSgData, dynamicInstData;
+  dispatchIndexOpFoldResults(mixedSgLayout, dynamicSgLayout, staticSgLayout);
+  dispatchIndexOpFoldResults(mixedSgData, dynamicSgData, staticSgData);
+  dispatchIndexOpFoldResults(mixedInstData, dynamicInstData, staticInstData);
+  build(builder, ostate, target.getType(),
+        /*target=*/target,
+        /*index=*/index,
+        /*sg_layout=*/dynamicSgLayout,
+        /*sg_data=*/dynamicSgData,
+        /*inst_data=*/dynamicInstData,
+        /*static_sg_layout=*/staticSgLayout,
+        /*static_sg_data=*/staticSgData,
+        /*static_inst_data=*/staticInstData,
+        /*result=*/result,
+        /*operand=*/operand);
+}
+
+DiagnosedSilenceableFailure
+transform::SetOpLayoutAttrOp::apply(transform::TransformRewriter &rewriter,
+                                    transform::TransformResults &results,
+                                    transform::TransformState &state) {
+
+  auto targetOps = state.getPayloadOps(getTarget());
+  if (!llvm::hasSingleElement(targetOps)) {
+    return emitDefiniteFailure() << "requires exactly one targetOp handle (got "
+                                 << llvm::range_size(targetOps) << ")";
+  }
+  Operation *target = *targetOps.begin();
 
   bool resultTarget = getResult();
   bool operandTarget = getOperand();
@@ -695,19 +872,34 @@ DiagnosedSilenceableFailure transform::SetOpLayoutAttrOp::applyToOne(
            << "index exceeds the number of op operands.";
   }
 
-  auto sgLayout = getSgLayout();
+  auto transformOp = cast<TransformOpInterface>(getOperation());
+
+  SmallVector<int32_t> sgLayout;
+  DiagnosedSilenceableFailure status =
+      convertMixedValuesToInt(state, transformOp, sgLayout, getMixedSgLayout());
+  if (!status.succeeded())
+    return status;
+
+  SmallVector<int32_t> sgData;
+  status =
+      convertMixedValuesToInt(state, transformOp, sgData, getMixedSgData());
+  if (!status.succeeded())
+    return status;
+
+  SmallVector<int32_t> instData;
+  status =
+      convertMixedValuesToInt(state, transformOp, instData, getMixedInstData());
+  if (!status.succeeded())
+    return status;
+
   if (sgLayout.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected sg_layout to be a 2D vector";
   }
-
-  auto sgData = getSgData();
   if (sgData.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected sg_data to be a 2D vector";
   }
-
-  auto instData = getInstData();
   if (instData.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected inst_data to be a 2D vector";
@@ -734,13 +926,43 @@ DiagnosedSilenceableFailure transform::SetOpLayoutAttrOp::applyToOne(
 void transform::SetOpLayoutAttrOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   onlyReadsHandle(getTargetMutable(), effects);
+  onlyReadsHandle(getSgLayoutMutable(), effects);
+  onlyReadsHandle(getSgDataMutable(), effects);
+  onlyReadsHandle(getInstDataMutable(), effects);
   modifiesPayload(effects);
 }
 
-DiagnosedSilenceableFailure transform::ConvertOperandLayoutOp::applyToOne(
-    transform::TransformRewriter &rewriter, Operation *target,
-    transform::ApplyToEachResultList &results,
-    transform::TransformState &state) {
+void transform::ConvertOperandLayoutOp::build(
+    OpBuilder &builder, OperationState &ostate, Value target, int64_t index,
+    ArrayRef<OpFoldResult> mixedSgLayout, ArrayRef<OpFoldResult> mixedSgData,
+    ArrayRef<OpFoldResult> mixedInstData) {
+  SmallVector<int64_t> staticSgLayout, staticSgData, staticInstData;
+  SmallVector<Value> dynamicSgLayout, dynamicSgData, dynamicInstData;
+  dispatchIndexOpFoldResults(mixedSgLayout, dynamicSgLayout, staticSgLayout);
+  dispatchIndexOpFoldResults(mixedSgData, dynamicSgData, staticSgData);
+  dispatchIndexOpFoldResults(mixedInstData, dynamicInstData, staticInstData);
+  build(builder, ostate, target.getType(),
+        /*target=*/target,
+        /*index=*/index,
+        /*sg_layout=*/dynamicSgLayout,
+        /*sg_data=*/dynamicSgData,
+        /*inst_data=*/dynamicInstData,
+        /*static_sg_layout=*/staticSgLayout,
+        /*static_sg_data=*/staticSgData,
+        /*static_inst_data=*/staticInstData);
+}
+
+DiagnosedSilenceableFailure
+transform::ConvertOperandLayoutOp::apply(transform::TransformRewriter &rewriter,
+                                         transform::TransformResults &results,
+                                         transform::TransformState &state) {
+
+  auto targetOps = state.getPayloadOps(getTarget());
+  if (!llvm::hasSingleElement(targetOps)) {
+    return emitDefiniteFailure() << "requires exactly one targetOp handle (got "
+                                 << llvm::range_size(targetOps) << ")";
+  }
+  Operation *target = *targetOps.begin();
 
   // For now only DPAS op is supported.
   auto targetOp = dyn_cast<xegpu::DpasOp>(target);
@@ -757,19 +979,34 @@ DiagnosedSilenceableFailure transform::ConvertOperandLayoutOp::applyToOne(
            << "operandIndex exceeds the number of op operands.";
   }
 
-  auto sgLayout = getSgLayout();
+  auto transformOp = cast<TransformOpInterface>(getOperation());
+
+  SmallVector<int32_t> sgLayout;
+  DiagnosedSilenceableFailure status =
+      convertMixedValuesToInt(state, transformOp, sgLayout, getMixedSgLayout());
+  if (!status.succeeded())
+    return status;
+
+  SmallVector<int32_t> sgData;
+  status =
+      convertMixedValuesToInt(state, transformOp, sgData, getMixedSgData());
+  if (!status.succeeded())
+    return status;
+
+  SmallVector<int32_t> instData;
+  status =
+      convertMixedValuesToInt(state, transformOp, instData, getMixedInstData());
+  if (!status.succeeded())
+    return status;
+
   if (sgLayout.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected sg_layout to be a 2D vector";
   }
-
-  auto sgData = getSgData();
   if (sgData.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected sg_data to be a 2D vector";
   }
-
-  auto instData = getInstData();
   if (instData.size() != 2) {
     return emitSilenceableFailure(getLoc())
            << "Expected inst_data to be a 2D vector";
@@ -819,6 +1056,9 @@ DiagnosedSilenceableFailure transform::ConvertOperandLayoutOp::applyToOne(
 void transform::ConvertOperandLayoutOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   onlyReadsHandle(getTargetMutable(), effects);
+  onlyReadsHandle(getSgLayoutMutable(), effects);
+  onlyReadsHandle(getSgDataMutable(), effects);
+  onlyReadsHandle(getInstDataMutable(), effects);
   modifiesPayload(effects);
 }
 

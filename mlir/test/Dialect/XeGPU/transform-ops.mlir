@@ -98,8 +98,8 @@ module attributes {transform.with_named_sequence} {
 
 // -----
 
-// CHECK-LABEL: @set_result_layout_default_index
-func.func @set_result_layout_default_index(%arg0: memref<4096x4096xf16>) {
+// CHECK-LABEL: @set_result_layout_param
+func.func @set_result_layout_param(%arg0: memref<4096x4096xf16>) {
   // CHECK: %[[V0:.+]] = xegpu.create_nd_tdesc %arg0
   // CHECK-SAME: #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 32], inst_data = [8, 16]>>
   %0 = xegpu.create_nd_tdesc %arg0[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x32xf16>
@@ -110,7 +110,8 @@ module attributes {transform.with_named_sequence} {
   transform.named_sequence @__transform_main(%arg1: !transform.any_op {transform.readonly}) {
     %0 = transform.structured.match ops{["xegpu.create_nd_tdesc"]} in %arg1 : (!transform.any_op) -> !transform.any_op
     // CHECK: transform.xegpu.set_result_layout %{{.*}}
-    %1 = transform.xegpu.set_result_layout %0 sg_layout = [8, 4] sg_data = [32, 32] inst_data = [8, 16] : (!transform.any_op) -> !transform.any_op
+    %layout0 = transform.param.constant 8 : i64 -> !transform.param<i64>
+    %1 = transform.xegpu.set_result_layout %0 index = 0 sg_layout = [%layout0, 4] sg_data = [32, 32] inst_data = [8, 16] : (!transform.any_op, !transform.param<i64>) -> !transform.any_op
     transform.yield
   }
 }
@@ -136,6 +137,59 @@ module attributes {transform.with_named_sequence} {
     %0 = transform.structured.match ops{["xegpu.dpas"]} in %arg1 : (!transform.any_op) -> !transform.any_op
     // CHECK: transform.xegpu.set_op_layout_attr %{{.*}}
     transform.xegpu.set_op_layout_attr %0 result sg_layout = [8, 4] sg_data = [32, 64] inst_data = [8, 16] : !transform.any_op
+    transform.yield
+  }
+}
+
+// -----
+
+// CHECK-LABEL: @set_op_layout_attr_result_default_sg_param
+func.func @set_op_layout_attr_result_default_sg_param(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf16>) {
+  %0 = xegpu.create_nd_tdesc %arg0[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x32xf16>
+  %1 = xegpu.load_nd %0  : !xegpu.tensor_desc<256x32xf16> -> vector<256x32xf16>
+  %2 = xegpu.create_nd_tdesc %arg1[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<32x256xf16>
+  %3 = xegpu.load_nd %2  : !xegpu.tensor_desc<32x256xf16> -> vector<32x256xf16>
+  %4 = xegpu.create_nd_tdesc %arg2[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x256xf16>
+  %5 = xegpu.load_nd %4  : !xegpu.tensor_desc<256x256xf16> -> vector<256x256xf16>
+  // CHECK: = xegpu.dpas
+  // CHECK: {layout_result_0 = #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 64], inst_data = [8, 16]>}
+  %6 = xegpu.dpas %1, %3, %5 : vector<256x32xf16>, vector<32x256xf16>, vector<256x256xf16> -> vector<256x256xf16>
+  return
+}
+
+module attributes {transform.with_named_sequence} {
+  transform.named_sequence @__transform_main(%arg1: !transform.any_op {transform.readonly}) {
+    %0 = transform.structured.match ops{["xegpu.dpas"]} in %arg1 : (!transform.any_op) -> !transform.any_op
+    // CHECK: transform.xegpu.set_op_layout_attr %{{.*}}
+    %layout0 = transform.param.constant 8 : i64 -> !transform.param<i64>
+    transform.xegpu.set_op_layout_attr %0 result sg_layout = [%layout0, 4] sg_data = [32, 64] inst_data = [8, 16] : !transform.any_op, !transform.param<i64>
+    transform.yield
+  }
+}
+
+// -----
+
+// CHECK-LABEL: @set_op_layout_attr_result_default_sg_param2
+func.func @set_op_layout_attr_result_default_sg_param2(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf16>) {
+  %0 = xegpu.create_nd_tdesc %arg0[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x32xf16>
+  %1 = xegpu.load_nd %0  : !xegpu.tensor_desc<256x32xf16> -> vector<256x32xf16>
+  %2 = xegpu.create_nd_tdesc %arg1[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<32x256xf16>
+  %3 = xegpu.load_nd %2  : !xegpu.tensor_desc<32x256xf16> -> vector<32x256xf16>
+  %4 = xegpu.create_nd_tdesc %arg2[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x256xf16>
+  %5 = xegpu.load_nd %4  : !xegpu.tensor_desc<256x256xf16> -> vector<256x256xf16>
+  // CHECK: = xegpu.dpas
+  // CHECK: {layout_result_0 = #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 64], inst_data = [8, 16]>}
+  %6 = xegpu.dpas %1, %3, %5 : vector<256x32xf16>, vector<32x256xf16>, vector<256x256xf16> -> vector<256x256xf16>
+  return
+}
+
+module attributes {transform.with_named_sequence} {
+  transform.named_sequence @__transform_main(%arg1: !transform.any_op {transform.readonly}) {
+    %0 = transform.structured.match ops{["xegpu.dpas"]} in %arg1 : (!transform.any_op) -> !transform.any_op
+    // CHECK: transform.xegpu.set_op_layout_attr %{{.*}}
+    %layout0 = transform.param.constant 8 : i64 -> !transform.param<i64>
+    %layout1 = transform.param.constant 4 : i64 -> !transform.param<i64>
+    transform.xegpu.set_op_layout_attr %0 result sg_layout = [%layout0, %layout1] sg_data = [32, 64] inst_data = [8, 16] : !transform.any_op, !transform.param<i64>, !transform.param<i64>
     transform.yield
   }
 }
@@ -221,6 +275,36 @@ module attributes {transform.with_named_sequence} {
 
 // -----
 
+// CHECK-LABEL: @convert_operand_layout_a_sg_param
+func.func @convert_operand_layout_a_sg_param(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf16>) {
+  // CHECK: %[[V0:.+]] = xegpu.create_nd_tdesc %arg0
+  %0 = xegpu.create_nd_tdesc %arg0[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x32xf16, #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 32], inst_data = [32, 16]>>
+  // CHECK: %[[V1:.+]] = xegpu.load_nd %[[V0]]
+  %1 = xegpu.load_nd %0  : !xegpu.tensor_desc<256x32xf16, #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 32], inst_data = [32, 16]>> -> vector<256x32xf16>
+  // CHECK: %[[V2:.+]] = xegpu.convert_layout %[[V1]]
+  // CHECK: input_layout = #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 32], inst_data = [32, 16]>
+  // CHECK: target_layout = #xegpu.layout<sg_layout = [8, 4], sg_data = [32, 32], inst_data = [8, 16]>
+  %2 = xegpu.create_nd_tdesc %arg1[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<32x256xf16>
+  %3 = xegpu.load_nd %2  : !xegpu.tensor_desc<32x256xf16> -> vector<32x256xf16>
+  %4 = xegpu.create_nd_tdesc %arg2[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x256xf16>
+  %5 = xegpu.load_nd %4  : !xegpu.tensor_desc<256x256xf16> -> vector<256x256xf16>
+  // CHECK: = xegpu.dpas %[[V2]]
+  %6 = xegpu.dpas %1, %3, %5 : vector<256x32xf16>, vector<32x256xf16>, vector<256x256xf16> -> vector<256x256xf16>
+  return
+}
+
+module attributes {transform.with_named_sequence} {
+  transform.named_sequence @__transform_main(%arg1: !transform.any_op {transform.readonly}) {
+    %0 = transform.structured.match ops{["xegpu.dpas"]} in %arg1 : (!transform.any_op) -> !transform.any_op
+    // CHECK: transform.xegpu.convert_operand_layout %{{.*}}
+    %layout0 = transform.param.constant 8 : i64 -> !transform.param<i64>
+    transform.xegpu.convert_operand_layout %0 index = 0 sg_layout = [%layout0, 4] sg_data = [32, 32] inst_data = [8, 16] : !transform.any_op, !transform.param<i64>
+    transform.yield
+  }
+}
+
+// -----
+
 // CHECK-LABEL: @insert_prefetch_dpas_a
 func.func @insert_prefetch_dpas_a(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf16>) {
   %c32 = arith.constant 32 : index
@@ -258,6 +342,50 @@ module attributes {transform.with_named_sequence} {
     %1 = transform.structured.match ops{["xegpu.dpas"]} in %0 : (!transform.any_op) -> !transform.any_op
     // CHECK: transform.xegpu.insert_prefetch %{{.*}} %{{.*}}
     %2, %3 = transform.xegpu.insert_prefetch %1 %0 index = 0 sg_layout = [32, 1] sg_data = [8, 32] : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op)
+    transform.yield
+  }
+}
+
+// -----
+
+// CHECK-LABEL: @insert_prefetch_dpas_a_sg_param
+func.func @insert_prefetch_dpas_a_sg_param(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf16>) {
+  %c32 = arith.constant 32 : index
+  %c4096 = arith.constant 4096 : index
+  %c0 = arith.constant 0 : index
+  %0 = xegpu.create_nd_tdesc %arg2[0, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x256xf16>
+  %1 = xegpu.load_nd %0  : !xegpu.tensor_desc<256x256xf16> -> vector<256x256xf16>
+  // CHECK: %[[C32:.+]] = arith.constant 32 : index
+  // CHECK: %[[V0:.+]] = xegpu.create_nd_tdesc %arg0
+  // CHECK-SAME: !xegpu.tensor_desc<256x32xf16, #xegpu.layout<sg_layout = [32, 1], sg_data = [8, 32]>>
+  // Peeled first iteration of the loop, canonicalization drops the scf.for
+  // CHECK: %[[V2:.+]] = scf.for
+  // CHECK-SAME: iter_args(%[[V1:.+]] = %[[V0]])
+  // CHECK: = xegpu.update_nd_offset %[[V1]], [0, %[[C32]]]
+  // CHECK: xegpu.prefetch_nd %[[V1]]
+  // Reduction loop
+  // CHECK: scf.for
+  // CHECK-SAME: iter_args(%[[V3:.+]] = %[[V2]]
+  %2 = scf.for %arg3 = %c0 to %c4096 step %c32 iter_args(%arg4 = %1) -> (vector<256x256xf16>) {
+    // CHECK: = xegpu.update_nd_offset %[[V3]], [0, %[[C32]]]
+    // CHECK: xegpu.prefetch_nd %[[V3]]
+    %3 = xegpu.create_nd_tdesc %arg0[0, %arg3] : memref<4096x4096xf16> -> !xegpu.tensor_desc<256x32xf16>
+    %4 = xegpu.load_nd %3  : !xegpu.tensor_desc<256x32xf16> -> vector<256x32xf16>
+    %5 = xegpu.create_nd_tdesc %arg1[%arg3, 0] : memref<4096x4096xf16> -> !xegpu.tensor_desc<32x256xf16>
+    %6 = xegpu.load_nd %5  : !xegpu.tensor_desc<32x256xf16> -> vector<32x256xf16>
+    %7 = xegpu.dpas %4, %6, %arg4 : vector<256x32xf16>, vector<32x256xf16>, vector<256x256xf16> -> vector<256x256xf16>
+    scf.yield %7 : vector<256x256xf16>
+  }
+  return
+}
+
+module attributes {transform.with_named_sequence} {
+  transform.named_sequence @__transform_main(%arg1: !transform.any_op {transform.readonly}) {
+    %0 = transform.structured.match ops{["scf.for"]} in %arg1 : (!transform.any_op) -> !transform.any_op
+    %1 = transform.structured.match ops{["xegpu.dpas"]} in %0 : (!transform.any_op) -> !transform.any_op
+    // CHECK: transform.xegpu.insert_prefetch %{{.*}} %{{.*}}
+    %layout0 = transform.param.constant 32 : i64 -> !transform.param<i64>
+    %2, %3 = transform.xegpu.insert_prefetch %1 %0 index = 0 sg_layout = [%layout0, 1] sg_data = [8, 32] : (!transform.any_op, !transform.any_op, !transform.param<i64>) -> (!transform.any_op, !transform.any_op)
     transform.yield
   }
 }

@@ -9,7 +9,12 @@ try:
     from ...ir import *
     from ...dialects import transform
     from .._ods_common import _cext as _ods_cext
-    from .._ods_common import get_op_result_or_value as _get_op_result_or_value
+    from .._ods_common import (
+        MixedValues,
+        get_op_result_or_value as _get_op_result_or_value,
+        _dispatch_dynamic_index_list,
+    )
+
 except ImportError as e:
     raise RuntimeError("Error loading imports from extension module") from e
 
@@ -45,22 +50,41 @@ class SetResultLayoutOp(SetResultLayoutOp):
     def __init__(
         self,
         target: Union[Operation, Value],
-        sg_layout: Union[Sequence[int], Attribute],
-        sg_data: Union[Sequence[int], Attribute],
-        inst_data: Union[Sequence[int], Attribute],
+        index: Union[int, Attribute],
+        sg_layout: MixedValues,
+        sg_data: MixedValues,
+        inst_data: MixedValues,
         *,
-        index: Optional[Union[int, Attribute]] = None,
         loc=None,
         ip=None,
     ):
-        transformed_type = transform.AnyOpType.get()
+        target_value = _get_op_result_or_value(target)
+        (
+            dynamic_sg_layout,
+            static_sg_layout,
+            _,
+        ) = _dispatch_dynamic_index_list(sg_layout)
+        (
+            dynamic_sg_data,
+            static_sg_data,
+            _,
+        ) = _dispatch_dynamic_index_list(sg_data)
+        (
+            dynamic_inst_data,
+            static_inst_data,
+            _,
+        ) = _dispatch_dynamic_index_list(inst_data)
+
         super().__init__(
-            transformed_type,
-            target,
-            sg_layout,
-            sg_data,
-            inst_data,
-            resultIndex=index,
+            target_value.type,
+            target_value,
+            index,
+            dynamic_sg_layout,
+            dynamic_sg_data,
+            dynamic_inst_data,
+            static_sg_layout=static_sg_layout,
+            static_sg_data=static_sg_data,
+            static_inst_data=static_inst_data,
             loc=loc,
             ip=ip
         )
@@ -73,9 +97,9 @@ class SetOpLayoutAttrOp(SetOpLayoutAttrOp):
     def __init__(
         self,
         target: Union[Operation, Value],
-        sg_layout: Union[Sequence[int], Attribute],
-        sg_data: Union[Sequence[int], Attribute],
-        inst_data: Union[Sequence[int], Attribute],
+        sg_layout: MixedValues,
+        sg_data: MixedValues,
+        inst_data: MixedValues,
         *,
         index: Union[int, Attribute] = None,
         result: Union[bool, Attribute] = None,
@@ -83,32 +107,37 @@ class SetOpLayoutAttrOp(SetOpLayoutAttrOp):
         loc=None,
         ip=None,
     ):
+        (
+            dynamic_sg_layout,
+            static_sg_layout,
+            _,
+        ) = _dispatch_dynamic_index_list(sg_layout)
+        (
+            dynamic_sg_data,
+            static_sg_data,
+            _,
+        ) = _dispatch_dynamic_index_list(sg_data)
+        (
+            dynamic_inst_data,
+            static_inst_data,
+            _,
+        ) = _dispatch_dynamic_index_list(inst_data)
         if result is None and operand is None:
             result = True
         super().__init__(
-            target,
-            sg_layout,
-            sg_data,
-            inst_data,
+            _get_op_result_or_value(target),
+            dynamic_sg_layout,
+            dynamic_sg_data,
+            dynamic_inst_data,
+            static_sg_layout=static_sg_layout,
+            static_sg_data=static_sg_data,
+            static_inst_data=static_inst_data,
             index=index,
             result=result,
             operand=operand,
             loc=loc,
             ip=ip
         )
-        # __init__(
-        #     target: Union[mlir._mlir_libs._mlir.ir.Operation, mlir._mlir_libs._mlir.ir.Value],
-        #     sg_layout: Union[Sequence[int], mlir._mlir_libs._mlir.ir.Attribute],
-        #     sg_data: Union[Sequence[int], mlir._mlir_libs._mlir.ir.Attribute],
-        #     inst_data: Union[Sequence[int], mlir._mlir_libs._mlir.ir.Attribute],
-        #     *,
-        #     index: Union[int, mlir._mlir_libs._mlir.ir.Attribute] = None,
-        #     result: Union[bool, mlir._mlir_libs._mlir.ir.Attribute] = None,
-        #     operand: Union[bool, mlir._mlir_libs._mlir.ir.Attribute] = None,
-        #     loc=None,
-        #     ip=None
-        # )
-
 
 
 @_ods_cext.register_operation(_Dialect, replace=True)
@@ -119,19 +148,37 @@ class ConvertOperandLayoutOp(ConvertOperandLayoutOp):
         self,
         target: Union[Operation, Value],
         index: Union[int, Attribute],
-        sg_layout: Union[Sequence[int], Attribute],
-        sg_data: Union[Sequence[int], Attribute],
-        inst_data: Union[Sequence[int], Attribute],
+        sg_layout: MixedValues,
+        sg_data: MixedValues,
+        inst_data: MixedValues,
         *,
         loc=None,
         ip=None,
     ):
+        (
+            dynamic_sg_layout,
+            static_sg_layout,
+            _,
+        ) = _dispatch_dynamic_index_list(sg_layout)
+        (
+            dynamic_sg_data,
+            static_sg_data,
+            _,
+        ) = _dispatch_dynamic_index_list(sg_data)
+        (
+            dynamic_inst_data,
+            static_inst_data,
+            _,
+        ) = _dispatch_dynamic_index_list(inst_data)
         super().__init__(
             target,
             index,
-            sg_layout,
-            sg_data,
-            inst_data,
+            dynamic_sg_layout,
+            dynamic_sg_data,
+            dynamic_inst_data,
+            static_sg_layout=static_sg_layout,
+            static_sg_data=static_sg_data,
+            static_inst_data=static_inst_data,
             loc=loc,
             ip=ip
         )
@@ -146,11 +193,21 @@ class InsertPrefetchOp(InsertPrefetchOp):
         target: Union[Operation, Value],
         loop_op: Union[Operation, Value],
         index: Union[int, Attribute],
-        sg_layout: Union[Sequence[int], Attribute],
-        sg_data: Union[Sequence[int], Attribute],
+        sg_layout: MixedValues,
+        sg_data: MixedValues,
         loc=None,
         ip=None,
     ):
+        (
+            dynamic_sg_layout,
+            static_sg_layout,
+            _,
+        ) = _dispatch_dynamic_index_list(sg_layout)
+        (
+            dynamic_sg_data,
+            static_sg_data,
+            _,
+        ) = _dispatch_dynamic_index_list(sg_data)
         transformed_target_type = transform.AnyOpType.get()
         transformed_loop_type = transform.AnyOpType.get()
         super().__init__(
@@ -159,8 +216,10 @@ class InsertPrefetchOp(InsertPrefetchOp):
             _get_op_result_or_value(target),
             _get_op_result_or_value(loop_op),
             index,
-            sg_layout,
-            sg_data,
+            dynamic_sg_layout,
+            dynamic_sg_data,
+            static_sg_layout=static_sg_layout,
+            static_sg_data=static_sg_data,
             loc=loc,
             ip=ip
         )

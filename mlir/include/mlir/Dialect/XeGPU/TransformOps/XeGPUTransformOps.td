@@ -353,4 +353,30 @@ def SetGPULaunchThreadsOp
   }];
 }
 
+def ExpandResultVectorOp : Op<Transform_Dialect, "xegpu.expand_result_vector", [
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+  TransformOpInterface
+]> {
+
+  let summary = "Adds a singleton dimension to the op's return vector.";
+  let description = [{
+    Adds a singleton dimension to the op's return vector.
+  }];
+
+  let arguments = (ins TransformHandleTypeInterface : $target);
+  let results = (outs TransformHandleTypeInterface : $transformed);
+
+  let assemblyFormat = [{
+    $target attr-dict `:` functional-type(operands, results)
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::DiagnosedSilenceableFailure apply(
+        ::mlir::transform::TransformRewriter &rewriter,
+        ::mlir::transform::TransformResults &transformResults,
+        ::mlir::transform::TransformState &state);
+  }];
+}
+
+
 #endif // XEGPU_EXTENSION

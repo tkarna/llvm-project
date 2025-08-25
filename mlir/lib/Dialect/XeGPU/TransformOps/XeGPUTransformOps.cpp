@@ -1056,3 +1056,50 @@ void transform::SetGPULaunchThreadsOp::getEffects(
   onlyReadsHandle(getLaunchOpMutable(), effects);
   modifiesPayload(effects);
 }
+
+DiagnosedSilenceableFailure
+transform::ExpandResultVectorOp::apply(transform::TransformRewriter &rewriter,
+                                    transform::TransformResults &results,
+                                    transform::TransformState &state) {
+
+  auto targetOps = state.getPayloadOps(getTarget());
+  if (!llvm::hasSingleElement(targetOps)) {
+    return emitDefiniteFailure() << "requires exactly one targetOp handle (got "
+                                 << llvm::range_size(targetOps) << ")";
+  }
+  Operation *target = *targetOps.begin();
+
+  // Check that target is a vector.transfer_read op.
+  if (!isa<vector::TransferReadOp>(target)) {
+    return emitDefiniteFailure() << "expected a vector.transfer_read op, but got: "
+                                 << target->getName();
+  }
+  auto readOp = dyn_cast<vector::TransferReadOp>(target);
+
+  // Replace transfer_read op with new op whose return vector's dimension
+  // has been extended by a singleton dim in the leading dimension.
+  auto vecType = cast<VectorType>(target->getResult(0).getType());
+  auto oldShape = vecType.getShape();
+  SmallVector<int64_t> newShape{1};
+  newShape.append(oldShape.begin(), oldShape.end());
+  auto newType = VectorType::get(newShape, vecType.getElementType());
+  rewriter.setInsertionPointAfter(readOp);  
+  // TODO clone read op retaining attributes (if any)
+  auto inBounds = SmallVector<bool>{true, true};
+  auto newOp = rewriter.create<vector::TransferReadOp>(
+      target->getLoc(), newType, readOp.getBase(), ValueRange{readOp.getIndices()},
+      std::nullopt, inBounds);
+  rewriter.replaceOp(target, newOp);
+
+  // Map result handles.
+  results.set(cast<OpResult>(getTransformed()), {newOp.getOperation()});
+
+  return DiagnosedSilenceableFailure::success();
+}
+
+void transform::ExpandResultVectorOp::getEffects(
+    ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  consumesHandle(getTargetMutable(), effects);
+  producesHandle(getOperation()->getOpResults(), effects);
+  modifiesPayload(effects);
+}

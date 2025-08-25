@@ -261,3 +261,24 @@ class SetGPULaunchThreadsOp(SetGPULaunchThreadsOp):
             loc=loc,
             ip=ip
         )
+
+
+@_ods_cext.register_operation(_Dialect, replace=True)
+class ExpandResultVectorOp(ExpandResultVectorOp):
+    """Specialization for ExpandResultVectorOp class."""
+
+    def __init__(
+        self,
+        target: Union[Operation, Value],
+        *,
+        loc=None,
+        ip=None,
+    ):
+        target_value = _get_op_result_or_value(target)
+
+        super().__init__(
+            target_value.type,
+            target_value,
+            loc=loc,
+            ip=ip
+        )

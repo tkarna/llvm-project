@@ -686,23 +686,14 @@ transform::GetDescOp::applyToOne(transform::TransformRewriter &rewriter,
                                  transform::ApplyToEachResultList &results,
                                  transform::TransformState &state) {
 
-  // For now only DPAS op is supported.
-  auto targetOp = dyn_cast<xegpu::DpasOp>(target);
-  if (!targetOp) {
-    auto diag = emitSilenceableFailure(getLoc())
-                << "Expected a xegpu.dpas op, but got: " << target->getName();
-    diag.attachNote(target->getLoc()) << "target op";
-    return diag;
-  }
-
   int64_t operandIndex = getOperandIndex();
-  if (operandIndex >= targetOp.getNumOperands()) {
+  if (operandIndex >= target->getNumOperands()) {
     return emitSilenceableFailure(getLoc())
            << "operandIndex exceeds the number of op operands.";
   }
 
-  Value opVec = targetOp.getOperation()->getOperand(operandIndex);
-  auto maybeDescOp = findDescriptorOp(opVec, targetOp.getOperation());
+  Value opVec = target->getOperand(operandIndex);
+  auto maybeDescOp = findDescriptorOp(opVec, target);
   if (!maybeDescOp) {
     return emitSilenceableFailure(getLoc()) << "Could not find descriptor op.";
   }
@@ -771,19 +762,6 @@ transform::SetResultLayoutOp::apply(transform::TransformRewriter &rewriter,
       convertMixedValuesToInt(state, transformOp, instData, getMixedInstData());
   if (!status.succeeded())
     return status;
-
-  if (sgLayout.size() != 2) {
-    return emitSilenceableFailure(getLoc())
-           << "Expected sg_layout to be a 2D vector";
-  }
-  if (sgData.size() != 2) {
-    return emitSilenceableFailure(getLoc())
-           << "Expected sg_data to be a 2D vector";
-  }
-  if (instData.size() != 2) {
-    return emitSilenceableFailure(getLoc())
-           << "Expected inst_data to be a 2D vector";
-  }
 
   // For now only create_nd_desc op is supported.
   auto descOp = dyn_cast<xegpu::CreateNdDescOp>(target);
@@ -892,26 +870,6 @@ transform::SetOpLayoutAttrOp::apply(transform::TransformRewriter &rewriter,
   if (!status.succeeded())
     return status;
 
-  if (sgLayout.size() != 2) {
-    return emitSilenceableFailure(getLoc())
-           << "Expected sg_layout to be a 2D vector";
-  }
-  if (sgData.size() != 2) {
-    return emitSilenceableFailure(getLoc())
-           << "Expected sg_data to be a 2D vector";
-  }
-  if (instData.size() != 2) {
-    return emitSilenceableFailure(getLoc())
-           << "Expected inst_data to be a 2D vector";
-  }
-
-  // For now only dpas op is supported.
-  if (!isa<xegpu::DpasOp>(target)) {
-    auto diag = emitSilenceableFailure(getLoc())
-                << "Expected a xegpu.dpas op, but got: " << target->getName();
-    diag.attachNote(target->getLoc()) << "target op";
-    return diag;
-  }
   auto layoutAttr =
       createLayoutAttr(rewriter.getContext(), sgLayout, sgData, instData);
   // Set layout attribute for the op result or operand

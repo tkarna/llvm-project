@@ -49,6 +49,7 @@
 #include "mlir/Dialect/Tensor/Extensions/AllExtensions.h"
 #include "mlir/Dialect/Tensor/TransformOps/TensorTransformOps.h"
 #include "mlir/Dialect/Transform/DebugExtension/DebugExtension.h"
+#include "mlir/Dialect/Transform/FFIExtension/FFIExtension.h"
 #include "mlir/Dialect/Transform/IRDLExtension/IRDLExtension.h"
 #include "mlir/Dialect/Transform/LoopExtension/LoopExtension.h"
 #include "mlir/Dialect/Transform/PDLExtension/PDLExtension.h"
@@ -103,6 +104,7 @@ void mlir::registerAllExtensions(DialectRegistry &registry) {
   sparse_tensor::registerTransformDialectExtension(registry);
   tensor::registerTransformDialectExtension(registry);
   transform::registerDebugExtension(registry);
+  transform::registerFFIExtension(registry);
   transform::registerIRDLExtension(registry);
   transform::registerLoopExtension(registry);
   transform::registerPDLExtension(registry);

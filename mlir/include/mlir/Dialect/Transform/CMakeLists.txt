@@ -1,4 +1,5 @@
 add_subdirectory(DebugExtension)
+add_subdirectory(FFIExtension)
 add_subdirectory(Interfaces)
 add_subdirectory(IR)
 add_subdirectory(IRDLExtension)

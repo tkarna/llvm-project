@@ -2,13 +2,8 @@ import atexit
 
 from ..._mlir_libs import get_dialect_registry
 from ..._mlir_libs._mlirDialectsTransform._ffi import (
-#    register_dialect_extension,
     register_callback_handler,
 )
-
-print("GOT HERE")
-
-#register_dialect_extension(get_dialect_registry())
 
 from ...ir import ArrayAttr, Context, SymbolRefAttr, Attribute, Type
 from ...dialects import transform

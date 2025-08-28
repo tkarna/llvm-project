@@ -1020,10 +1020,29 @@ void transform::ConvertOperandLayoutOp::getEffects(
   modifiesPayload(effects);
 }
 
-DiagnosedSilenceableFailure transform::SetGPULaunchThreadsOp::applyToOne(
-    transform::TransformRewriter &rewriter, Operation *target,
-    transform::ApplyToEachResultList &results,
-    transform::TransformState &state) {
+void transform::SetGPULaunchThreadsOp::build(
+    OpBuilder &builder, OperationState &ostate, Value target,
+    ArrayRef<OpFoldResult> mixedThreads) {
+  SmallVector<int64_t> staticThreads;
+  SmallVector<Value> dynamicThreads;
+  dispatchIndexOpFoldResults(mixedThreads, dynamicThreads, staticThreads);
+  build(builder, ostate, target.getType(),
+        /*target=*/target,
+        /*threads=*/dynamicThreads,
+        /*static_threads=*/staticThreads);
+}
+
+DiagnosedSilenceableFailure
+transform::SetGPULaunchThreadsOp::apply(transform::TransformRewriter &rewriter,
+                                         transform::TransformResults &results,
+                                         transform::TransformState &state) {
+
+  auto targetOps = state.getPayloadOps(getTarget());
+  if (!llvm::hasSingleElement(targetOps)) {
+    return emitDefiniteFailure() << "requires exactly one targetOp handle (got "
+                                 << llvm::range_size(targetOps) << ")";
+  }
+  Operation *target = *targetOps.begin();
 
   auto launchOp = dyn_cast<gpu::LaunchOp>(target);
   if (!launchOp) {
@@ -1033,7 +1052,14 @@ DiagnosedSilenceableFailure transform::SetGPULaunchThreadsOp::applyToOne(
     return diag;
   }
 
-  auto threads = getThreads();
+  auto transformOp = cast<TransformOpInterface>(getOperation());
+
+  SmallVector<int32_t> threads;
+  DiagnosedSilenceableFailure status =
+      convertMixedValuesToInt(state, transformOp, threads, getMixedThreads());
+  if (!status.succeeded())
+    return status;
+
   if (threads.size() != 3) {
     return emitSilenceableFailure(getLoc())
            << "Expected threads to be a 3D vector";
@@ -1048,12 +1074,14 @@ DiagnosedSilenceableFailure transform::SetGPULaunchThreadsOp::applyToOne(
   launchOp.getBlockSizeXMutable().assign(createConstValue(threads[0]));
   launchOp.getBlockSizeYMutable().assign(createConstValue(threads[1]));
   launchOp.getBlockSizeZMutable().assign(createConstValue(threads[2]));
+
   return DiagnosedSilenceableFailure::success();
 }
 
 void transform::SetGPULaunchThreadsOp::getEffects(
     ::llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  onlyReadsHandle(getLaunchOpMutable(), effects);
+  onlyReadsHandle(getTargetMutable(), effects);
+  onlyReadsHandle(getThreadsMutable(), effects);
   modifiesPayload(effects);
 }
 

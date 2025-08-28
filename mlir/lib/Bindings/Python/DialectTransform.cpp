@@ -183,7 +183,7 @@ void populateDialectTransformSubmodule(nb::module_ &m) {
 
           // Needing to do this import here is ... not ideal.
           // The below commented-out code is potentially a better solution...
-          nb::handle mlir_ir = nb::module_::import_("mlir.ir");
+          nb::handle mlir_ir = nb::module_::import_("imex_mlir.ir");
           nb::handle Operation = mlir_ir.attr("Operation");
           nb::handle Value = mlir_ir.attr("Value");
           nb::handle Attribute = mlir_ir.attr("Attribute");

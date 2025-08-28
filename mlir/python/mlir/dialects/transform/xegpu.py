@@ -251,13 +251,20 @@ class SetGPULaunchThreadsOp(SetGPULaunchThreadsOp):
     def __init__(
         self,
         launch_op: Union[Operation, Value],
-        threads: Union[int, Attribute],
+        threads: MixedValues,
         loc=None,
         ip=None,
     ):
+        (
+            dynamic_threads,
+            static_threads,
+            _,
+        ) = _dispatch_dynamic_index_list(threads)
+
         super().__init__(
             _get_op_result_or_value(launch_op),
-            threads,
+            dynamic_threads,
+            static_threads=static_threads,
             loc=loc,
             ip=ip
         )

@@ -331,25 +331,40 @@ def InsertPrefetchOp : Op<Transform_Dialect, "xegpu.insert_prefetch", [
 // transform.gpu.map_forall_to_blocks to convert to gpu.launch op.
 def SetGPULaunchThreadsOp
     : Op<Transform_Dialect, "xegpu.set_gpu_launch_threads", [
-      TransformOpInterface, TransformEachOpTrait,
-      DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+      DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+      TransformOpInterface
     ]> {
 
   let summary = "Set number of threads for a given gpu.launch operation";
   let description = [{Set number of threads for a given gpu.launch operation}];
 
-  let arguments = (ins TransformHandleTypeInterface : $launchOp,
-                   DenseI32ArrayAttr : $threads);
+  let arguments = (ins TransformHandleTypeInterface : $target,
+                   Variadic<TransformAnyParamTypeOrAnyHandle> : $threads,
+                   DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$static_threads
+                   );
   let results = (outs);
+  let builders = [
+    OpBuilder<(ins "Value":$target, "ArrayRef<OpFoldResult>":$mixedThreads)>,
+  ];
+
   let assemblyFormat =
-      "$launchOp `threads` `=` $threads attr-dict `:` type($launchOp)";
+      "$target `threads` `=` $threads attr-dict `:` type($target)";
+  let assemblyFormat = [{
+    $target
+    `threads` `=` custom<DynamicIndexList>($threads, $static_threads)
+    attr-dict `:` functional-type(operands, results)
+  }];
 
   let extraClassDeclaration = [{
-    ::mlir::DiagnosedSilenceableFailure applyToOne(
-        ::mlir::transform::TransformRewriter & rewriter,
-        ::mlir::Operation * target,
-        ::mlir::transform::ApplyToEachResultList & results,
-        ::mlir::transform::TransformState & state);
+    ::mlir::DiagnosedSilenceableFailure apply(
+        ::mlir::transform::TransformRewriter &rewriter,
+        ::mlir::transform::TransformResults &transformResults,
+        ::mlir::transform::TransformState &state);
+
+    ::llvm::SmallVector<::mlir::OpFoldResult> getMixedThreads() {
+      Builder b(getContext());
+      return getMixedValues(getStaticThreads(), getThreads(), b);
+    }
   }];
 }
 

@@ -434,16 +434,16 @@ struct TransferReadLowering : public OpRewritePattern<vector::TransferReadOp> {
     if (failed(transferPreconditions(rewriter, readOp)))
       return failure();
 
-    // TODO:This check needs to be replaced with proper uArch capability check
-    auto chip = xegpu::getChipStr(readOp);
-    if (chip != "pvc" && chip != "bmg") {
-      // lower to scattered load Op if the target HW doesn't have 2d block load
-      // support
-      // TODO: add support for OutOfBound access
-      if (readOp.hasOutOfBoundsDim())
-        return failure();
-      return lowerToScatteredLoadOp(readOp, rewriter);
-    }
+    // // TODO:This check needs to be replaced with proper uArch capability check
+    // auto chip = xegpu::getChipStr(readOp);
+    // if (chip != "pvc" && chip != "bmg") {
+    //   // lower to scattered load Op if the target HW doesn't have 2d block load
+    //   // support
+    //   // TODO: add support for OutOfBound access
+    //   if (readOp.hasOutOfBoundsDim())
+    //     return failure();
+    //   return lowerToScatteredLoadOp(readOp, rewriter);
+    // }
 
     // Perform common data transfer checks.
     VectorType vecTy = readOp.getVectorType();
@@ -507,16 +507,16 @@ struct TransferWriteLowering
     if (failed(transferPreconditions(rewriter, writeOp)))
       return failure();
 
-    // TODO:This check needs to be replaced with proper uArch capability check
-    auto chip = xegpu::getChipStr(writeOp);
-    if (chip != "pvc" && chip != "bmg") {
-      // lower to scattered store Op if the target HW doesn't have 2d block
-      // store support
-      // TODO: add support for OutOfBound access
-      if (writeOp.hasOutOfBoundsDim())
-        return failure();
-      return lowerToScatteredStoreOp(writeOp, rewriter);
-    }
+    // // TODO:This check needs to be replaced with proper uArch capability check
+    // auto chip = xegpu::getChipStr(writeOp);
+    // if (chip != "pvc" && chip != "bmg") {
+    //   // lower to scattered store Op if the target HW doesn't have 2d block
+    //   // store support
+    //   // TODO: add support for OutOfBound access
+    //   if (writeOp.hasOutOfBoundsDim())
+    //     return failure();
+    //   return lowerToScatteredStoreOp(writeOp, rewriter);
+    // }
 
     // Perform common data transfer checks.
     VectorType vecTy = writeOp.getVectorType();

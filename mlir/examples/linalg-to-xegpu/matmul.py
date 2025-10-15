@@ -134,7 +134,7 @@ def parse_cli():
         "--prefetch-tile-b",
         type=int,
         nargs=2,
-        default=[8, 32],
+        default=[8, 16],
         help="Tile size for cooperative prefetching of subgroup B matrix",
     )
     parser.add_argument(
@@ -156,6 +156,11 @@ def parse_cli():
         choices=["f16", "f32"],
         default="f32",
         help="Data type of the C matrix.",
+    )
+    parser.add_argument(
+        "--relu",
+        action="store_true",
+        help="Add relu op after the matrix multiplication.",
     )
     parser.add_argument(
         "--dump-kernel",
@@ -187,9 +192,38 @@ def parse_cli():
     return args
 
 
+# FIXME generate payload IR using python
+payload_matmul = """
+  func.func @payload(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf32>) attributes {llvm.emit_c_interface} {
+    %0 = bufferization.to_tensor %arg0 restrict : memref<4096x4096xf16> to tensor<4096x4096xf16>
+    %1 = bufferization.to_tensor %arg1 restrict : memref<4096x4096xf16> to tensor<4096x4096xf16>
+    %2 = bufferization.to_tensor %arg2 restrict writable : memref<4096x4096xf32> to tensor<4096x4096xf32>
+    %3 = linalg.matmul ins(%0, %1 : tensor<4096x4096xf16>, tensor<4096x4096xf16>) outs(%2 : tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
+    bufferization.materialize_in_destination %3 in restrict writable %arg2 : (tensor<4096x4096xf32>, memref<4096x4096xf32>) -> ()
+    return
+  }
+"""
+
+payload_matmul_relu = """
+  func.func @payload(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf32>) attributes {llvm.emit_c_interface} {
+    %0 = bufferization.to_tensor %arg0 restrict : memref<4096x4096xf16> to tensor<4096x4096xf16>
+    %1 = bufferization.to_tensor %arg1 restrict : memref<4096x4096xf16> to tensor<4096x4096xf16>
+    %2 = bufferization.to_tensor %arg2 restrict writable : memref<4096x4096xf32> to tensor<4096x4096xf32>
+    %3 = linalg.matmul ins(%0, %1 : tensor<4096x4096xf16>, tensor<4096x4096xf16>) outs(%2 : tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
+    %cst = arith.constant 0.000000e+00 : f32
+    %4 = tensor.empty() : tensor<4096x4096xf32>
+    %5 = linalg.fill ins(%cst : f32) outs(%4 : tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
+    %6 = linalg.max ins(%3, %5 : tensor<4096x4096xf32>, tensor<4096x4096xf32>) outs(%2 : tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
+    bufferization.materialize_in_destination %6 in restrict writable %arg2 : (tensor<4096x4096xf32>, memref<4096x4096xf32>) -> ()
+    return
+  }
+"""
+
+
 class MatMul:
     def __init__(self, M: int = 4096, N: int = 4096, K: int = 4096,
                  ab_type: str = "f16", c_type: str = "f32",
+                 has_relu: bool = False,
                  dump_kernel: Union[str, None] = None,
                  dump_schedule: Union[bool, None] = None,
                  tune_params: Union[dict, None] = None):
@@ -198,6 +232,7 @@ class MatMul:
         self.K = K
         self.ab_type = ab_type
         self.c_type = c_type
+        self.has_relu = has_relu
         self.dump_kernel = dump_kernel
         self.dump_schedule = dump_schedule
         assert (M, N, K) == (4096, 4096, 4096), "only 4096x4096x4096 size is supported"
@@ -224,6 +259,9 @@ class MatMul:
             payload_file = "payload_main.mlir"
             with open(payload_file, "r") as f:
                 payload_ir = f.read()
+            # insert payload func
+            func_ir = payload_matmul_relu if self.has_relu else payload_matmul
+            payload_ir = payload_ir.replace("// ##PAYLOAD_FUNC##", func_ir)
             mod = ir.Module.parse(payload_ir)
         return mod
 
@@ -306,11 +344,26 @@ class MatMul:
 
         # apply transformations
 
-        matmul = match(mod, ops={"linalg.matmul"})
-        func = transform.get_parent_op(anytype, matmul)
-        wg_matmul, wg_loop = structured.TileUsingForallOp(
-            matmul, tile_sizes=wg_tile
-        ).results
+        if self.has_relu:
+            # tile leaf and progressively tile-fuse producers
+            # FIXME structured.FuseOp can now fuse everything in one step
+            max_op = match(mod, ops={"linalg.max"})
+            wg_max, wg_loop = structured.TileUsingForallOp(
+                max_op, tile_sizes=wg_tile
+            ).results
+            fill = match(mod, ops={"linalg.fill"})
+            structured.FuseIntoContainingOp(fill, wg_loop)
+            matmul = match(mod, ops={"linalg.matmul"})
+            func = transform.get_parent_op(anytype, matmul)
+            structured.FuseIntoContainingOp(matmul, wg_loop)
+            cse(mod)
+            canonicalize(mod)
+        else:
+            matmul = match(mod, ops={"linalg.matmul"})
+            func = transform.get_parent_op(anytype, matmul)
+            wg_matmul, wg_loop = structured.TileUsingForallOp(
+                matmul, tile_sizes=wg_tile
+            ).results
 
         # k loop tiling
         wg_matmul = match(mod, ops={"linalg.matmul"}).result
@@ -354,7 +407,7 @@ class MatMul:
         mod = apply_registered_pass(mod, "fold-memref-alias-ops")
         cse(mod)
         canonicalize(mod)
-        # FIXME does not exist upstream
+        # FIXME pass does not exist upstream
         # mod = apply_registered_pass(mod, "imex-remove-temporaries")
         mod = apply_registered_pass(mod, "drop-equivalent-buffer-results")
 
@@ -459,6 +512,16 @@ class MatMul:
         desc_op_c = xegpu.SetDescLayoutOp(target=desc_op_c, index=0, **output_layout)
         # C tile dpas layout
         xegpu.SetOpLayoutAttrOp(target=dpas_op, result=True, index=0, **output_layout)
+
+        if self.has_relu:
+            # for post ops we need to add C layout manually
+            max_op = match(gpu_func, ops={"arith.maximumf"}).result
+            xegpu.SetOpLayoutAttrOp(target=max_op, result=True, index=0, **output_layout)
+            # find zero constant buffer and annotate it
+            const_buffer = transform.get_producer_of_operand(anytype, max_op, 1)
+            xegpu.SetOpLayoutAttrOp(
+                target=const_buffer, result=True, index=0, **output_layout
+            )
 
         # insert prefetch ops for DPAS A and B tiles
         xegpu.InsertPrefetchOp(
@@ -614,6 +677,8 @@ class MatMul:
 
         time = parse_time(output_str, "Average time in kernel: ")
         flops = 2 * self.M * self.N * self.K
+        if self.has_relu:
+            flops += self.M * self.N
         gflopsps = flops / time / 1e9
         print(f"{self.M},{self.N},{self.K}", end=" ")
         print(f"{self.ab_type},{self.ab_type},{self.c_type}", end=" ")
@@ -650,6 +715,7 @@ def parse_args_and_run():
         K=args.sizes[2],
         ab_type=args.ab_type,
         c_type=args.c_type,
+        has_relu=args.relu,
         dump_kernel=args.dump_kernel,
         dump_schedule=args.dump_schedule,
         tune_params=tune_params,

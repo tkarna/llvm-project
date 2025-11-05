@@ -288,8 +288,8 @@ We use the `xegpu.get_desc_op` transform op to find the defining `xegpu.create_n
     // match the dpas op in scf.for
     %k_loop = transform.structured.match ops{["scf.for"]} in %19 : (!transform.any_op) -> !transform.any_op
     %dpas_op = transform.structured.match ops{["xegpu.dpas"]} in %k_loop : (!transform.any_op) -> !transform.any_op
-    // find its desc op
-    %desc_op = transform.xegpu.get_desc_op %dpas_op : (!transform.any_op) -> !transform.any_op
+    // find desc op for tile A (index = 0)
+    %desc_op = transform.xegpu.get_desc_op %dpas_op index = 0 : (!transform.any_op) -> !transform.any_op
 ```
 
 Once we have a handle to the desc op, we can set the desc layout with the `xegpu.set_desc_layout` transform op.
@@ -367,7 +367,7 @@ The following transform op will emit 2-steps-ahead prefetch pattern for the A ti
 
 ```mlir
 transform.xegpu.insert_prefetch %dpas_op %k_loop index = 0 sg_layout = [32, 1] sg_data = [8, 32] inst_data = [8, 16]
-  static_nb_prefetch = 2 : !transform.any_op, !transform.any_op
+  nb_prefetch = 2 : !transform.any_op, !transform.any_op
 ```
 
 resulting in:

@@ -1,5 +1,7 @@
 # RFC for XeGPU Transform ops
 
+**NOTE** _This RFC is obsolete. The described transfrom ops have been upstreamed to MLIR with some modifications._
+
 ## Summary
 
 The XeGPU dialect capabilities need to be extended upstream to facilitate more generic lowering of high-level operations. Specifically we need to be able to lower `linalg` dialect operations to XeGPU dialect.
